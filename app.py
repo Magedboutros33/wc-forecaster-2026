@@ -249,8 +249,47 @@ def main_app():
     with tab3:
          st.markdown("### Scoring Rules 📐\n* **3 Points:** Exact score.\n* **1 Point:** Correct winner/draw.\n* **0 Points:** Incorrect result.")
          
-    with tab4:
-        st.info("Extra forecasting will connect to the database next!")
+with tab4:
+        st.write("")
+        st.markdown("<h3 style='text-align: center;'>🔮 Tournament Predictions</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: gray;'>Lock in your big-picture guesses here!</p>", unsafe_allow_html=True)
+        st.write("")
+        
+        # 1. Fetch existing extra forecasts for this user
+        extra_res = supabase.table("extra_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
+        existing_extra = extra_res.data[0] if extra_res.data else None
+        
+        # 2. Set Default Values
+        def_winner = existing_extra.get('cup_winner', '') if existing_extra else ''
+        def_scorer = existing_extra.get('top_scorer', '') if existing_extra else ''
+        def_most_goals = existing_extra.get('most_goals_team', '') if existing_extra else ''
+        
+        # 3. Build the UI Form
+        with st.form("extra_forecasts_form"):
+            st.subheader("🏆 The Big Three")
+            cup_winner = st.text_input("Overall Tournament Winner", value=def_winner, placeholder="e.g., Brazil")
+            top_scorer = st.text_input("Golden Boot (Top Scorer)", value=def_scorer, placeholder="e.g., Kylian Mbappé")
+            most_goals = st.text_input("Team with Most Goals", value=def_most_goals, placeholder="e.g., England")
+                
+            st.write("")
+            submitted = st.form_submit_button("Save Extra Forecasts", type="primary", use_container_width=True)
+            
+            if submitted:
+                payload = {
+                    "user_id": st.session_state['user_id'],
+                    "cup_winner": cup_winner,
+                    "top_scorer": top_scorer,
+                    "most_goals_team": most_goals
+                }
+                
+                # Update if exists, Insert if new
+                if existing_extra:
+                    supabase.table("extra_forecasts").update(payload).eq("id", existing_extra['id']).execute()
+                else:
+                    supabase.table("extra_forecasts").insert(payload).execute()
+                    
+                st.success("Big predictions locked in! 🔒")
+                st.rerun()
 
 # --- APP ROUTING ---
 if not st.session_state.get('logged_in', False):
