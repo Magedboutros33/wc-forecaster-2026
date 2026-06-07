@@ -171,4 +171,121 @@ def main_app():
             user_forecasts = {f['match_id']: f for f in forecasts_res.data} if forecasts_res.data else {}
 
             for m_id, match in all_matches.items():
-                if match['status'] in ['NS', 'T
+                if match['status'] in ['NS', 'TBD']:
+                    existing = user_forecasts.get(m_id)
+                    def_home = existing['home_goals'] if existing else 0
+                    def_away = existing['away_goals'] if existing else 0
+
+                    with st.container(border=True):
+                        st.markdown(f"<p style='text-align: center; color: gray; font-size: 14px;'>{match['date']}</p>", unsafe_allow_html=True)
+                        col1, col2, col3 = st.columns([2, 1, 2])
+                        with col1:
+                            if match['home_logo']:
+                                st.markdown(f"<div style='text-align: center;'><img src='{match['home_logo']}' width='40'></div>", unsafe_allow_html=True)
+                            st.markdown(f"<h4 style='text-align: center;'>{match['home_team']}</h4>", unsafe_allow_html=True)
+                            home_goals = st.number_input("Home Goals", min_value=0, max_value=15, step=1, value=def_home, key=f"home_{m_id}", label_visibility="collapsed")
+                        with col2:
+                            st.markdown("<h4 style='text-align: center; color: gray; margin-top: 30px;'>VS</h4>", unsafe_allow_html=True)
+                        with col3:
+                            if match['away_logo']:
+                                st.markdown(f"<div style='text-align: center;'><img src='{match['away_logo']}' width='40'></div>", unsafe_allow_html=True)
+                            st.markdown(f"<h4 style='text-align: center;'>{match['away_team']}</h4>", unsafe_allow_html=True)
+                            away_goals = st.number_input("Away Goals", min_value=0, max_value=15, step=1, value=def_away, key=f"away_{m_id}", label_visibility="collapsed")
+                            
+                        st.write("") 
+                        if st.button("Save Forecast", key=f"btn_{m_id}", type="primary"):
+                            forecast_data = {"user_id": st.session_state['user_id'], "match_id": m_id, "home_goals": home_goals, "away_goals": away_goals}
+                            if existing:
+                                supabase.table("match_forecasts").update(forecast_data).eq("id", existing['id']).execute()
+                                st.toast("Forecast updated! ⚽")
+                            else:
+                                supabase.table("match_forecasts").insert(forecast_data).execute()
+                                st.toast("Forecast saved! ⚽")
+                            st.rerun()
+
+    with tab2:
+        st.write("")
+        st.markdown("<h3 style='text-align: center;'>🏆 Current Standings</h3>", unsafe_allow_html=True)
+        
+        users_res = supabase.table("profiles").select("id, name").execute()
+        all_forecasts_res = supabase.table("match_forecasts").select("*").execute()
+        
+        if users_res.data:
+            leaderboard_data = {u['id']: {"Player": u['name'], "Exact Scores (3pt)": 0, "Correct Outcomes (1pt)": 0, "Total Points": 0} for u in users_res.data}
+            
+            for forecast in (all_forecasts_res.data or []):
+                u_id = forecast['user_id']
+                m_id = forecast['match_id']
+                
+                if m_id in all_matches and all_matches[m_id]['status'] == 'FT':
+                    act_h = all_matches[m_id]['actual_home']
+                    act_a = all_matches[m_id]['actual_away']
+                    pred_h = forecast['home_goals']
+                    pred_a = forecast['away_goals']
+                    
+                    if u_id in leaderboard_data:
+                        if act_h == pred_h and act_a == pred_a:
+                            leaderboard_data[u_id]["Exact Scores (3pt)"] += 1
+                            leaderboard_data[u_id]["Total Points"] += 3
+                        elif (act_h > act_a and pred_h > pred_a) or (act_h < act_a and pred_h < pred_a) or (act_h == act_a and pred_h == pred_a):
+                            leaderboard_data[u_id]["Correct Outcomes (1pt)"] += 1
+                            leaderboard_data[u_id]["Total Points"] += 1
+
+            df = pd.DataFrame(leaderboard_data.values())
+            df = df.sort_values(by=["Total Points", "Exact Scores (3pt)"], ascending=False).reset_index(drop=True)
+            df.index += 1
+            
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info("No registered players yet.")
+
+    with tab3:
+         st.markdown("### Scoring Rules 📐\n* **3 Points:** Exact score.\n* **1 Point:** Correct winner/draw.\n* **0 Points:** Incorrect result.")
+         
+    with tab4:
+        st.write("")
+        st.markdown("<h3 style='text-align: center;'>🔮 Tournament Predictions</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: gray;'>Lock in your big-picture guesses here!</p>", unsafe_allow_html=True)
+        st.write("")
+        
+        # Fetch existing extra forecasts for this user
+        extra_res = supabase.table("extra_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
+        existing_extra = extra_res.data[0] if extra_res.data else None
+        
+        # Set Default Values
+        def_winner = existing_extra.get('cup_winner', '') if existing_extra else ''
+        def_scorer = existing_extra.get('top_scorer', '') if existing_extra else ''
+        def_most_goals = existing_extra.get('most_goals_team', '') if existing_extra else ''
+        
+        # Build the UI Form
+        with st.form("extra_forecasts_form"):
+            st.subheader("🏆 The Big Three")
+            cup_winner = st.text_input("Overall Tournament Winner", value=def_winner, placeholder="e.g., Brazil")
+            top_scorer = st.text_input("Golden Boot (Top Scorer)", value=def_scorer, placeholder="e.g., Kylian Mbappé")
+            most_goals = st.text_input("Team with Most Goals", value=def_most_goals, placeholder="e.g., England")
+                
+            st.write("")
+            submitted = st.form_submit_button("Save Extra Forecasts", type="primary", use_container_width=True)
+            
+            if submitted:
+                payload = {
+                    "user_id": st.session_state['user_id'],
+                    "cup_winner": cup_winner,
+                    "top_scorer": top_scorer,
+                    "most_goals_team": most_goals
+                }
+                
+                # Update if exists, Insert if new
+                if existing_extra:
+                    supabase.table("extra_forecasts").update(payload).eq("id", existing_extra['id']).execute()
+                else:
+                    supabase.table("extra_forecasts").insert(payload).execute()
+                    
+                st.success("Big predictions locked in! 🔒")
+                st.rerun()
+
+# --- APP ROUTING ---
+if not st.session_state.get('logged_in', False):
+    auth_page()
+else:
+    main_app()
