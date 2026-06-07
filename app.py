@@ -47,9 +47,26 @@ def inject_light_mode_css():
         
         [data-testid="collapsedControl"] { display: none; }
         .stTabs [data-baseweb="tab-list"] { justify-content: center; gap: 15px; }
-        
-        /* Custom spacing for the forecast columns */
         div[data-testid="column"] { align-self: center; }
+        
+        /* --- MOBILE FIX: Force Forecast Row to stay horizontal --- */
+        @media (max-width: 768px) {
+            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) {
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"] {
+                width: auto !important;
+                min-width: 0 !important;
+                padding: 0 3px !important;
+            }
+            /* Hide the outer spacer columns on mobile to give inputs more room */
+            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"]:first-child,
+            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"]:last-child {
+                display: none !important;
+            }
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -178,7 +195,7 @@ def auth_page():
                     except Exception as e:
                         st.error(f"Error creating account: {e}")
 
-# --- NEW FULLY REDESIGNED MATCH RENDERER ---
+# --- MATCH RENDERER COMPONENT ---
 def render_match(match, user_forecasts, prefix=""):
     m_id = match['id']
     status = match['status']
@@ -191,7 +208,6 @@ def render_match(match, user_forecasts, prefix=""):
     actual_home = match['score']['fullTime'].get('home')
     actual_away = match['score']['fullTime'].get('away')
 
-    # Convert UTC to Egypt Time (EEST)
     try:
         utc_dt = datetime.strptime(match['utcDate'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC)
         egypt_dt = utc_dt.astimezone(pytz.timezone('Africa/Cairo'))
@@ -203,7 +219,6 @@ def render_match(match, user_forecasts, prefix=""):
     edit_key = f"{prefix}edit_{m_id}"
     if edit_key not in st.session_state: st.session_state[edit_key] = not has_forecast
 
-    # Dynamic Font Sizing for long country names
     home_font = "0.95rem" if len(home_team) > 12 else "1.2rem"
     away_font = "0.95rem" if len(away_team) > 12 else "1.2rem"
 
@@ -211,7 +226,7 @@ def render_match(match, user_forecasts, prefix=""):
         # 1. MATCH TIME & STATUS
         st.markdown(f"<div style='text-align: center; color: #777; font-size: 0.85rem; font-weight: bold; margin-bottom: 12px;'>🕒 {time_str} (Egypt Time) &nbsp;•&nbsp; {status}</div>", unsafe_allow_html=True)
 
-        # 2. TEAMS AND FLAGS (Name on top, Flag below)
+        # 2. TEAMS AND FLAGS
         st.markdown(f"""
         <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;'>
             <div style='flex: 1; text-align: center; display: flex; flex-direction: column; align-items: center;'>
@@ -234,7 +249,7 @@ def render_match(match, user_forecasts, prefix=""):
 
         st.markdown("<hr style='margin: 15px 0 10px 0; border: 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
 
-        # 3. ACTUAL RESULTS (Side-by-side boxes)
+        # 3. ACTUAL RESULTS
         st.markdown("<div style='text-align: center; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;'>Actual Result</div>", unsafe_allow_html=True)
         if actual_home is not None and actual_away is not None:
             st.markdown(f"""
@@ -263,17 +278,17 @@ def render_match(match, user_forecasts, prefix=""):
         
         is_locked = not st.session_state[edit_key]
         
-        # Center the inputs using spacer columns
         fc_space1, fc_h, fc_dash, fc_a, fc_btn, fc_space2 = st.columns([1, 1.2, 0.2, 1.2, 2, 1])
         
         if is_locked:
             locked_style = "background-color: #E9ECEF; color: #555; border: 1px solid #CCC; border-radius: 6px; text-align: center; font-size: 1.2rem; padding: 4px; height: 38px; line-height: 28px; font-weight: bold;"
             fc_h.markdown(f"<div style='{locked_style}'>{saved_home}</div>", unsafe_allow_html=True)
-            fc_dash.markdown("<div style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
+            
+            # The 'keep-horizontal' class triggers the CSS mobile fix
+            fc_dash.markdown("<div class='keep-horizontal' style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
             fc_a.markdown(f"<div style='{locked_style}'>{saved_away}</div>", unsafe_allow_html=True)
             
             with fc_btn:
-                # Disable changing if the match has already started/finished
                 if status in ["TIMED", "SCHEDULED"]:
                     if st.button("Change", key=f"{prefix}btn_change_{m_id}", use_container_width=True, type="secondary"):
                         st.session_state[edit_key] = True
@@ -283,7 +298,9 @@ def render_match(match, user_forecasts, prefix=""):
         else:
             if status in ["TIMED", "SCHEDULED"]:
                 pred_h = fc_h.number_input("H", min_value=0, value=int(saved_home), key=f"{prefix}h_{m_id}", label_visibility="collapsed")
-                fc_dash.markdown("<div style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
+                
+                # The 'keep-horizontal' class triggers the CSS mobile fix
+                fc_dash.markdown("<div class='keep-horizontal' style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
                 pred_a = fc_a.number_input("A", min_value=0, value=int(saved_away), key=f"{prefix}a_{m_id}", label_visibility="collapsed")
                 
                 with fc_btn:
@@ -295,7 +312,7 @@ def render_match(match, user_forecasts, prefix=""):
                         st.rerun()
             else:
                 fc_h.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px;'>-</div>", unsafe_allow_html=True)
-                fc_dash.markdown("<div style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
+                fc_dash.markdown("<div class='keep-horizontal' style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
                 fc_a.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px;'>-</div>", unsafe_allow_html=True)
                 fc_btn.markdown("<div style='text-align: center; padding-top: 8px; color: #dc3545; font-size: 0.85rem; font-weight: bold;'>Locked</div>", unsafe_allow_html=True)
 
