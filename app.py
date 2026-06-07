@@ -3,6 +3,7 @@ from supabase import create_client, Client
 import re
 import requests
 from datetime import datetime
+import pandas as pd
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="World Cup 2026 Forecaster", page_icon="🏆", layout="centered")
@@ -25,7 +26,6 @@ except Exception as e:
 @st.cache_data(ttl=3600) # Cache for 1 hour to save API limits
 def get_wc_matches():
     url = "https://v3.football.api-sports.io/fixtures"
-    # League 1 = World Cup, Season 2026
     querystring = {"league": "1", "season": "2026"}
     headers = {"x-apisports-key": st.secrets["API_FOOTBALL_KEY"]}
     
@@ -33,26 +33,27 @@ def get_wc_matches():
         response = requests.get(url, headers=headers, params=querystring)
         data = response.json()
         
-        matches = []
+        matches = {}
         for match in data.get('response', []):
             raw_date = match['fixture']['date']
-            # Convert ISO timestamp to readable date
             formatted_date = datetime.strptime(raw_date, "%Y-%m-%dT%H:%M:%S%z").strftime("%B %d, %Y - %H:%M")
             
-            clean_match = {
-                "id": match['fixture']['id'],
+            m_id = match['fixture']['id']
+            matches[m_id] = {
+                "id": m_id,
                 "date": formatted_date,
-                "status": match['fixture']['status']['short'],
+                "status": match['fixture']['status']['short'], # 'NS', 'FT', etc.
                 "home_team": match['teams']['home']['name'],
                 "away_team": match['teams']['away']['name'],
                 "home_logo": match['teams']['home']['logo'],
-                "away_logo": match['teams']['away']['logo']
+                "away_logo": match['teams']['away']['logo'],
+                "actual_home": match['goals']['home'],
+                "actual_away": match['goals']['away']
             }
-            matches.append(clean_match)
         return matches
     except Exception as e:
         st.error(f"Failed to fetch match data from API: {e}")
-        return []
+        return {}
 
 # --- INITIALIZE SESSION STATES ---
 if 'theme' not in st.session_state:
@@ -158,40 +159,33 @@ def main_app():
 
     tab1, tab2, tab3, tab4 = st.tabs(["⚽ Matches", "🏆 Leaderboard", "📜 Rules", "🔮 Extra"])
 
+    # Load shared API match dictionary
+    all_matches = get_wc_matches()
+
     with tab1:
         st.write("")
-        all_matches = get_wc_matches()
-        
         if not all_matches:
-            st.warning("No matches available yet. The API might be empty or the tournament schedule isn't fully published.")
+            st.warning("No matches available yet from the API.")
         else:
-            # Fetch all existing forecasts for this user in one go to keep the app fast
             forecasts_res = supabase.table("match_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
             user_forecasts = {f['match_id']: f for f in forecasts_res.data} if forecasts_res.data else {}
 
-            for match in all_matches:
-                # 'NS' means 'Not Started' or 'TBD' means 'To Be Decided'
+            for m_id, match in all_matches.items():
                 if match['status'] in ['NS', 'TBD']:
-                    m_id = match['id']
-                    
-                    # Set defaults if the user already guessed this match
                     existing = user_forecasts.get(m_id)
                     def_home = existing['home_goals'] if existing else 0
                     def_away = existing['away_goals'] if existing else 0
 
                     with st.container(border=True):
                         st.markdown(f"<p style='text-align: center; color: gray; font-size: 14px;'>{match['date']}</p>", unsafe_allow_html=True)
-                        
                         col1, col2, col3 = st.columns([2, 1, 2])
                         with col1:
                             if match['home_logo']:
                                 st.markdown(f"<div style='text-align: center;'><img src='{match['home_logo']}' width='40'></div>", unsafe_allow_html=True)
                             st.markdown(f"<h4 style='text-align: center;'>{match['home_team']}</h4>", unsafe_allow_html=True)
                             home_goals = st.number_input("Home Goals", min_value=0, max_value=15, step=1, value=def_home, key=f"home_{m_id}", label_visibility="collapsed")
-                            
                         with col2:
                             st.markdown("<h4 style='text-align: center; color: gray; margin-top: 30px;'>VS</h4>", unsafe_allow_html=True)
-                            
                         with col3:
                             if match['away_logo']:
                                 st.markdown(f"<div style='text-align: center;'><img src='{match['away_logo']}' width='40'></div>", unsafe_allow_html=True)
@@ -200,13 +194,7 @@ def main_app():
                             
                         st.write("") 
                         if st.button("Save Forecast", key=f"btn_{m_id}", type="primary"):
-                            forecast_data = {
-                                "user_id": st.session_state['user_id'],
-                                "match_id": m_id,
-                                "home_goals": home_goals,
-                                "away_goals": away_goals
-                            }
-                            
+                            forecast_data = {"user_id": st.session_state['user_id'], "match_id": m_id, "home_goals": home_goals, "away_goals": away_goals}
                             if existing:
                                 supabase.table("match_forecasts").update(forecast_data).eq("id", existing['id']).execute()
                                 st.toast("Forecast updated! ⚽")
@@ -216,11 +204,53 @@ def main_app():
                             st.rerun()
 
     with tab2:
-        st.info("Leaderboard connecting next...")
+        st.write("")
+        st.markdown("<h3 style='text-align: center;'>🏆 Current Standings</h3>", unsafe_allow_html=True)
+        
+        # 1. Gather all users and all predictions from database
+        users_res = supabase.table("profiles").select("id, name").execute()
+        all_forecasts_res = supabase.table("match_forecasts").select("*").execute()
+        
+        if users_res.data:
+            # Map out profiles and initialize everyone to 0 points
+            leaderboard_data = {u['id']: {"Player": u['name'], "Exact Scores (3pt)": 0, "Correct Outcomes (1pt)": 0, "Total Points": 0} for u in users_res.data}
+            
+            # 2. Process point totals matching forecasts with live API results
+            for forecast in (all_forecasts_res.data or []):
+                u_id = forecast['user_id']
+                m_id = forecast['match_id']
+                
+                # Check if this match data exists and is completed ('FT' = Full Time)
+                if m_id in all_matches and all_matches[m_id]['status'] == 'FT':
+                    act_h = all_matches[m_id]['actual_home']
+                    act_a = all_matches[m_id]['actual_away']
+                    pred_h = forecast['home_goals']
+                    pred_a = forecast['away_goals']
+                    
+                    if u_id in leaderboard_data:
+                        # Calculation Logic: Exact Match
+                        if act_h == pred_h and act_a == pred_a:
+                            leaderboard_data[u_id]["Exact Scores (3pt)"] += 1
+                            leaderboard_data[u_id]["Total Points"] += 3
+                        # Calculation Logic: Correct Outcome (Winner or Draw)
+                        elif (act_h > act_a and pred_h > pred_a) or (act_h < act_a and pred_h < pred_a) or (act_h == act_a and pred_h == pred_a):
+                            leaderboard_data[u_id]["Correct Outcomes (1pt)"] += 1
+                            leaderboard_data[u_id]["Total Points"] += 1
+
+            # 3. Format and sort into a pretty DataFrame table
+            df = pd.DataFrame(leaderboard_data.values())
+            df = df.sort_values(by=["Total Points", "Exact Scores (3pt)"], ascending=False).reset_index(drop=True)
+            df.index += 1  # Make ranking positions start at 1 instead of 0
+            
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info("No registered players yet.")
+
     with tab3:
          st.markdown("### Scoring Rules 📐\n* **3 Points:** Exact score.\n* **1 Point:** Correct winner/draw.\n* **0 Points:** Incorrect result.")
+         
     with tab4:
-        st.info("Extra forecasting connecting next...")
+        st.info("Extra forecasting will connect to the database next!")
 
 # --- APP ROUTING ---
 if not st.session_state.get('logged_in', False):
