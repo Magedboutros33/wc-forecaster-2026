@@ -256,16 +256,27 @@ def main_app():
         extra_res = supabase.table("extra_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
         existing_extra = extra_res.data[0] if extra_res.data else None
         
-        unique_teams = []
-        if all_matches:
-            teams_set = set()
-            for m in all_matches.values():
-                teams_set.add(m['home_team'])
-                teams_set.add(m['away_team'])
-            unique_teams = sorted(list(teams_set))
-            
-        if not unique_teams:
-            unique_teams = ["Argentina", "Brazil", "England", "France", "Germany", "Portugal", "Spain", "USA"]
+        # --- OFFICIAL 2026 WORLD CUP GROUPS AND TEAMS ---
+        groups_dict = {
+            "Group A": ["Mexico", "South Africa", "South Korea", "Czechia"],
+            "Group B": ["Canada", "Bosnia and Herzegovina", "Qatar", "Switzerland"],
+            "Group C": ["Brazil", "Morocco", "Haiti", "Scotland"],
+            "Group D": ["USA", "Paraguay", "Australia", "Türkiye"],
+            "Group E": ["Germany", "Curaçao", "Côte d'Ivoire", "Ecuador"],
+            "Group F": ["Netherlands", "Japan", "Sweden", "Tunisia"],
+            "Group G": ["Belgium", "Egypt", "Iran", "New Zealand"],
+            "Group H": ["Spain", "Cabo Verde", "Saudi Arabia", "Uruguay"],
+            "Group I": ["France", "Senegal", "Norway", "Iraq"],
+            "Group J": ["Argentina", "Algeria", "Austria", "Jordan"],
+            "Group K": ["Portugal", "DR Congo", "Uzbekistan", "Colombia"],
+            "Group L": ["England", "Croatia", "Ghana", "Panama"]
+        }
+        
+        # Extract and sort all 48 official teams for the Big Three dropdowns
+        all_48_teams = []
+        for teams in groups_dict.values():
+            all_48_teams.extend(teams)
+        unique_teams = sorted(all_48_teams)
             
         star_players = ["Kylian Mbappé", "Erling Haaland", "Harry Kane", "Vinícius Júnior", "Jude Bellingham", "Lionel Messi", "Cristiano Ronaldo", "Kevin De Bruyne", "Other"]
 
@@ -296,12 +307,6 @@ def main_app():
             
             st.subheader("📊 Group Stage Rankings")
             st.markdown("Select the 1st, 2nd, 3rd, and 4th place finishers for all 12 groups.")
-            
-            groups_dict = {}
-            for i in range(12):
-                letter = chr(65 + i)
-                start = i * 4
-                groups_dict[f"Group {letter}"] = unique_teams[start:start+4] if len(unique_teams) >= (start+4) else ["Team 1", "Team 2", "Team 3", "Team 4"]
 
             group_sort_data = {}
             saved_groups = existing_extra.get('groups_sort', {}) if existing_extra else {}
