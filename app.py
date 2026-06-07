@@ -148,6 +148,10 @@ def save_forecast(match_id, home_goals, away_goals):
     else:
         supabase.table("match_forecasts").insert(forecast_data).execute()
         st.toast("Forecast saved! ⚽")
+        
+    # FIX: Instantly cache the saved values locally to beat the database read delay
+    st.session_state[f"cache_h_{match_id}"] = home_goals
+    st.session_state[f"cache_a_{match_id}"] = away_goals
 
 # --- AUTHENTICATION PAGE ---
 def auth_page():
@@ -227,8 +231,12 @@ def render_match(match, user_forecasts, prefix=""):
         """, unsafe_allow_html=True)
 
         if status in ["TIMED", "SCHEDULED"]:
-            saved_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
-            saved_away = user_forecasts.get(m_id, {}).get('away_goals', 0)
+            # FIX: Pull from DB, but override with local cache if it exists
+            db_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
+            db_away = user_forecasts.get(m_id, {}).get('away_goals', 0)
+            
+            saved_home = st.session_state.get(f"cache_h_{m_id}", db_home)
+            saved_away = st.session_state.get(f"cache_a_{m_id}", db_away)
             
             ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([1.5, 1.5, 0.5, 1.5, 0.5, 2, 1])
             
