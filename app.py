@@ -65,7 +65,7 @@ if 'user_id' not in st.session_state:
 if 'user_name' not in st.session_state:
     st.session_state['user_name'] = ""
 
-# --- CUSTOM CSS (UPDATED FOR WHITE SELECTIONS) ---
+# --- CUSTOM CSS (UPDATED FOR ALL WHITE INPUTS) ---
 def inject_custom_css():
     bg_color = "#0E1117" if st.session_state['theme'] == 'dark' else "#FFFFFF"
     text_color = "#FAFAFA" if st.session_state['theme'] == 'dark' else "#31333F"
@@ -77,9 +77,9 @@ def inject_custom_css():
         h1, h2, h3, h4, p, label {{ color: {text_color} !important; }}
         .stTabs [data-baseweb="tab-list"] {{ justify-content: center; gap: 15px; }}
         .stButton>button {{ width: 100%; border-radius: 8px; font-weight: 600; }}
-        input[type="number"], input[type="text"], input[type="password"] {{ text-align: center; font-size: 1.1rem; }}
+        input[type="number"] {{ text-align: center; font-size: 1.1rem; }}
         
-        /* Force Dropdowns/Selectboxes to be White with Dark Text */
+        /* Force Dropdowns to be White with Dark Text */
         div[data-baseweb="select"] > div {{
             background-color: #FFFFFF !important;
             color: #000000 !important;
@@ -91,6 +91,18 @@ def inject_custom_css():
         }}
         li[role="option"] {{
             color: #000000 !important;
+        }}
+        
+        /* Force Text Inputs (Golden Boot & Login) to be White with Dark Text */
+        div[data-baseweb="input"] > div {{
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+            border: 1px solid #CCCCCC !important;
+        }}
+        div[data-baseweb="input"] input {{
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+            text-align: center;
         }}
     </style>
     """, unsafe_allow_html=True)
@@ -173,7 +185,6 @@ def main_app():
 
     tab1, tab2, tab3, tab4 = st.tabs(["⚽ Matches", "🏆 Leaderboard", "📜 Rules", "🔮 Extra"])
 
-    # Load shared API match dictionary
     all_matches = get_wc_matches()
 
     with tab1:
@@ -270,23 +281,43 @@ def main_app():
         extra_res = supabase.table("extra_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
         existing_extra = extra_res.data[0] if extra_res.data else None
         
-        # --- OFFICIAL 2026 WORLD CUP GROUPS WITH EMOJI FLAGS ---
+        # --- OFFICIAL 2026 WORLD CUP GROUPS (Clean Names) ---
         groups_dict = {
-            "Group A": ["🇲🇽 Mexico", "🇿🇦 South Africa", "🇰🇷 South Korea", "🇨🇿 Czechia"],
-            "Group B": ["🇨🇦 Canada", "🇧🇦 Bosnia and Herzegovina", "🇶🇦 Qatar", "🇨🇭 Switzerland"],
-            "Group C": ["🇧🇷 Brazil", "🇲🇦 Morocco", "🇭🇹 Haiti", "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland"],
-            "Group D": ["🇺🇸 USA", "🇵🇾 Paraguay", "🇦🇺 Australia", "🇹🇷 Türkiye"],
-            "Group E": ["🇩🇪 Germany", "🇨🇼 Curaçao", "🇨🇮 Côte d'Ivoire", "🇪🇨 Ecuador"],
-            "Group F": ["🇳🇱 Netherlands", "🇯🇵 Japan", "🇸🇪 Sweden", "🇹🇳 Tunisia"],
-            "Group G": ["🇧🇪 Belgium", "🇪🇬 Egypt", "🇮🇷 Iran", "🇳🇿 New Zealand"],
-            "Group H": ["🇪🇸 Spain", "🇨🇻 Cabo Verde", "🇸🇦 Saudi Arabia", "🇺🇾 Uruguay"],
-            "Group I": ["🇫🇷 France", "🇸🇳 Senegal", "🇳🇴 Norway", "🇮🇶 Iraq"],
-            "Group J": ["🇦🇷 Argentina", "🇩🇿 Algeria", "🇦🇹 Austria", "🇯🇴 Jordan"],
-            "Group K": ["🇵🇹 Portugal", "🇨🇩 DR Congo", "🇺🇿 Uzbekistan", "🇨🇴 Colombia"],
-            "Group L": ["🏴󠁧󠁢󠁥󠁮󠁧󠁿 England", "🇭🇷 Croatia", "🇬🇭 Ghana", "🇵🇦 Panama"]
+            "Group A": ["Mexico", "South Africa", "South Korea", "Czechia"],
+            "Group B": ["Canada", "Bosnia and Herzegovina", "Qatar", "Switzerland"],
+            "Group C": ["Brazil", "Morocco", "Haiti", "Scotland"],
+            "Group D": ["USA", "Paraguay", "Australia", "Türkiye"],
+            "Group E": ["Germany", "Curaçao", "Côte d'Ivoire", "Ecuador"],
+            "Group F": ["Netherlands", "Japan", "Sweden", "Tunisia"],
+            "Group G": ["Belgium", "Egypt", "Iran", "New Zealand"],
+            "Group H": ["Spain", "Cabo Verde", "Saudi Arabia", "Uruguay"],
+            "Group I": ["France", "Senegal", "Norway", "Iraq"],
+            "Group J": ["Argentina", "Algeria", "Austria", "Jordan"],
+            "Group K": ["Portugal", "DR Congo", "Uzbekistan", "Colombia"],
+            "Group L": ["England", "Croatia", "Ghana", "Panama"]
         }
         
-        # Consolidate into a single sorted list for the big dropdowns
+        # Flag URL Mapping Database
+        flag_urls = {
+            "Mexico": "mx", "South Africa": "za", "South Korea": "kr", "Czechia": "cz",
+            "Canada": "ca", "Bosnia and Herzegovina": "ba", "Qatar": "qa", "Switzerland": "ch",
+            "Brazil": "br", "Morocco": "ma", "Haiti": "ht", "Scotland": "gb-sct",
+            "USA": "us", "Paraguay": "py", "Australia": "au", "Türkiye": "tr",
+            "Germany": "de", "Curaçao": "cw", "Côte d'Ivoire": "ci", "Ecuador": "ec",
+            "Netherlands": "nl", "Japan": "jp", "Sweden": "se", "Tunisia": "tn",
+            "Belgium": "be", "Egypt": "eg", "Iran": "ir", "New Zealand": "nz",
+            "Spain": "es", "Cabo Verde": "cv", "Saudi Arabia": "sa", "Uruguay": "uy",
+            "France": "fr", "Senegal": "sn", "Norway": "no", "Iraq": "iq",
+            "Argentina": "ar", "Algeria": "dz", "Austria": "at", "Jordan": "jo",
+            "Portugal": "pt", "DR Congo": "cd", "Uzbekistan": "uz", "Colombia": "co",
+            "England": "gb-eng", "Croatia": "hr", "Ghana": "gh", "Panama": "pa"
+        }
+        
+        def get_flag(team):
+            if team in flag_urls:
+                return f"https://flagcdn.com/w40/{flag_urls[team]}.png"
+            return "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/White_flag_of_surrender.svg/40px-White_flag_of_surrender.svg.png"
+
         all_48_teams = []
         for teams in groups_dict.values():
             all_48_teams.extend(teams)
@@ -307,14 +338,26 @@ def main_app():
         with st.form("extra_forecasts_form"):
             st.subheader("🏆 The Big Three")
             
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                cup_winner = st.selectbox("Tournament Winner", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_winner))
-            with col2:
+            # --- BIG THREE RENDER ---
+            c1, c2, c3 = st.columns(3)
+            
+            with c1:
+                fA, fB = st.columns([1, 4])
+                with fB:
+                    cup_winner = st.selectbox("Tournament Winner", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_winner))
+                with fA:
+                    if cup_winner: st.markdown(f"<img src='{get_flag(cup_winner)}' width='35' style='margin-top: 32px; border-radius: 4px;'>", unsafe_allow_html=True)
+            
+            with c2:
                 top_scorer = st.text_input("Golden Boot", value=def_scorer, placeholder="e.g., Kylian Mbappé")
-            with col3:
-                most_goals = st.selectbox("Most Goals (Team)", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_most_goals))
-                
+            
+            with c3:
+                fC, fD = st.columns([1, 4])
+                with fD:
+                    most_goals = st.selectbox("Most Goals (Team)", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_most_goals))
+                with fC:
+                    if most_goals: st.markdown(f"<img src='{get_flag(most_goals)}' width='35' style='margin-top: 32px; border-radius: 4px;'>", unsafe_allow_html=True)
+
             st.divider()
             
             st.subheader("📊 Group Stage Rankings")
@@ -331,12 +374,21 @@ def main_app():
                         
                         saved_sort = saved_groups.get(grp_name, [])
                         
-                        p1 = st.selectbox("1st", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 0), key=f"{grp_name}_1")
-                        p2 = st.selectbox("2nd", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 1), key=f"{grp_name}_2")
-                        p3 = st.selectbox("3rd", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 2), key=f"{grp_name}_3")
-                        p4 = st.selectbox("4th", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 3), key=f"{grp_name}_4")
+                        positions = ["1st", "2nd", "3rd", "4th"]
+                        selections = []
                         
-                        group_sort_data[grp_name] = [p1, p2, p3, p4]
+                        for i, pos in enumerate(positions):
+                            col_flag, col_drop = st.columns([1, 3])
+                            with col_drop:
+                                val = st.selectbox(pos, options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, i), key=f"{grp_name}_{i}")
+                                selections.append(val)
+                            with col_flag:
+                                if val:
+                                    st.markdown(f"<img src='{get_flag(val)}' width='30' style='margin-top: 30px; border-radius: 2px;'>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown(f"<div style='margin-top: 30px; width: 30px; height: 20px; background-color: #f0f2f6; border-radius: 2px;'></div>", unsafe_allow_html=True)
+                        
+                        group_sort_data[grp_name] = selections
 
             st.write("")
             submitted = st.form_submit_button("Save All Extra Forecasts", type="primary", use_container_width=True)
