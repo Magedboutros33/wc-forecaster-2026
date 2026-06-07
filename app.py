@@ -1,21 +1,28 @@
 import streamlit as st
 from supabase import create_client, Client
+import re
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="World Cup 2026 Forecaster", page_icon="🏆", layout="centered")
 
-
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
 def init_connection():
-    # .strip() removes any accidental leading/trailing spaces or newlines
+    # 1. Clean the URL completely
     raw_url = st.secrets["SUPABASE_URL"].strip()
     clean_url = raw_url.split("/rest/v1")[0].rstrip('/')
     
-    # We strip the key completely to get rid of those 5 hidden characters
-    clean_key = st.secrets["SUPABASE_KEY"].strip()
+    # 2. Extract ONLY valid JWT characters for the security key
+    # This automatically strips out hidden quotes, slashes, spaces, or tabs
+    raw_key = st.secrets["SUPABASE_KEY"]
+    clean_key = "".join(re.findall(r'[A-Za-z0-9._\-]', raw_key))
     
     return create_client(clean_url, clean_key)
+
+try:
+    supabase: Client = init_connection()
+except Exception as e:
+    st.error(f"Failed to connect to database. Check your secrets configuration. Error: {e}")
 
 # --- INITIALIZE SESSION STATES ---
 if 'theme' not in st.session_state:
@@ -44,10 +51,7 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 inject_custom_css()
-# --- DEBUGGING SECRETS (Remove later) ---
-# --- DEBUGGING SECRETS (Remove later) ---
-st.warning(f"Clean URL Length: {len(st.secrets['SUPABASE_URL'].strip().split('/rest/v1')[0].rstrip('/'))}")
-st.warning(f"Clean Key Length: {len(st.secrets['SUPABASE_KEY'].strip())}")
+
 # --- AUTHENTICATION VIEW (LOGIN & SIGNUP) ---
 def auth_page():
     st.write("")
@@ -63,13 +67,11 @@ def auth_page():
             login_password = st.text_input("Password", type="password", key="login_pass")
             if st.button("Login", type="primary"):
                 try:
-                    # Log in with Supabase Auth
                     response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
                     user = response.user
                     st.session_state['logged_in'] = True
                     st.session_state['user_id'] = user.id
                     
-                    # Fetch their name from our custom profiles table
                     profile = supabase.table("profiles").select("name").eq("id", user.id).execute()
                     if profile.data:
                         st.session_state['user_name'] = profile.data[0]['name']
@@ -133,13 +135,13 @@ def main_app():
     tab1, tab2, tab3, tab4 = st.tabs(["⚽ Matches", "🏆 Leaderboard", "📜 Rules", "🔮 Extra"])
 
     with tab1:
-        st.info("Match forecasting will connect to the database in the next step!")
+        st.info("Match forecasting will connect to the database next!")
     with tab2:
-        st.info("Leaderboard will connect to the database in the next step!")
+        st.info("Leaderboard will connect to the database next!")
     with tab3:
          st.markdown("### Scoring Rules 📐\n* **3 Points:** Exact score.\n* **1 Point:** Correct winner/draw.\n* **0 Points:** Incorrect result.")
     with tab4:
-        st.info("Extra forecasting will connect to the database in the next step!")
+        st.info("Extra forecasting will connect to the database next!")
 
 # --- APP ROUTING ---
 if not st.session_state.get('logged_in', False):
