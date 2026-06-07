@@ -4,14 +4,16 @@ from supabase import create_client, Client
 # --- CONFIGURATION ---
 st.set_page_config(page_title="World Cup 2026 Forecaster", page_icon="🏆", layout="centered")
 
+
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
 def init_connection():
-    # Trim trailing slashes if present in the secret URL
-    url = st.secrets["SUPABASE_URL"].strip().rstrip('/')
+    # This line automatically cleans the URL, ripping out '/rest/v1' if it exists
+    raw_url = st.secrets["SUPABASE_URL"].strip()
+    clean_url = raw_url.split("/rest/v1")[0].rstrip('/')
+    
     key = st.secrets["SUPABASE_KEY"].strip()
-    return create_client(url, key)
-
+    return create_client(clean_url, key)
 try:
     supabase: Client = init_connection()
 except Exception as e:
