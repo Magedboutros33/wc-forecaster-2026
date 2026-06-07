@@ -93,7 +93,6 @@ FLAG_URLS = {
     "England": "gb-eng", "Croatia": "hr", "Ghana": "gh", "Panama": "pa"
 }
 
-# The bug fix: explicitly mapping the name to the flag dictionary
 def get_flag(team):
     if team in FLAG_URLS: return f"https://flagcdn.com/w40/{FLAG_URLS[team]}.png"
     return "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/White_flag_of_surrender.svg/40px-White_flag_of_surrender.svg.png"
@@ -161,7 +160,6 @@ def auth_page():
         with tab1:
             login_email = st.text_input("Email", key="login_email")
             login_password = st.text_input("Password", type="password", key="login_pass")
-            # Set to primary so it gets styled Green
             if st.button("Login", type="primary", use_container_width=True):
                 try:
                     response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
@@ -190,7 +188,7 @@ def auth_page():
                         st.error(f"Error creating account: {e}")
 
 # --- MATCH RENDERER COMPONENT ---
-def render_match(match, user_forecasts):
+def render_match(match, user_forecasts, prefix=""):
     m_id = match['id']
     status = match['status']
     home_team = match['homeTeam']['name']
@@ -202,13 +200,14 @@ def render_match(match, user_forecasts):
     actual_home = match['score']['fullTime'].get('home')
     actual_away = match['score']['fullTime'].get('away')
 
-    # Manage Edit State
+    # Manage Edit State with unique prefix
     has_forecast = m_id in user_forecasts
-    if f"edit_{m_id}" not in st.session_state:
-        st.session_state[f"edit_{m_id}"] = not has_forecast
+    edit_key = f"{prefix}edit_{m_id}"
+    
+    if edit_key not in st.session_state:
+        st.session_state[edit_key] = not has_forecast
 
     with st.container(border=True):
-        # Header Row: Perfectly Centered
         st.markdown(f"""
         <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
             <div style='display: flex; align-items: center; gap: 10px; flex: 1;'>
@@ -231,35 +230,30 @@ def render_match(match, user_forecasts):
             saved_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
             saved_away = user_forecasts.get(m_id, {}).get('away_goals', 0)
             
-            # Tighter columns to make inputs smaller
             ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([1.5, 1.5, 0.5, 1.5, 0.5, 2, 1])
             
-            is_locked = not st.session_state[f"edit_{m_id}"]
+            is_locked = not st.session_state[edit_key]
             
-            pred_h = ic2.number_input("H", min_value=0, value=int(saved_home), key=f"h_{m_id}", disabled=is_locked, label_visibility="collapsed")
+            pred_h = ic2.number_input("H", min_value=0, value=int(saved_home), key=f"{prefix}h_{m_id}", disabled=is_locked, label_visibility="collapsed")
             ic3.markdown("<h3 style='text-align: center; margin-top: 0px;'>-</h3>", unsafe_allow_html=True)
-            pred_a = ic4.number_input("A", min_value=0, value=int(saved_away), key=f"a_{m_id}", disabled=is_locked, label_visibility="collapsed")
+            pred_a = ic4.number_input("A", min_value=0, value=int(saved_away), key=f"{prefix}a_{m_id}", disabled=is_locked, label_visibility="collapsed")
             
             with ic6:
                 if is_locked:
-                    # type="secondary" forces it to be Orange via CSS
-                    if st.button("Change", key=f"btn_change_{m_id}", use_container_width=True, type="secondary"):
-                        st.session_state[f"edit_{m_id}"] = True
+                    if st.button("Change", key=f"{prefix}btn_change_{m_id}", use_container_width=True, type="secondary"):
+                        st.session_state[edit_key] = True
                         st.rerun()
                 else:
-                    # type="primary" forces it to be Green via CSS
-                    if st.button("Save", key=f"btn_save_{m_id}", use_container_width=True, type="primary"):
+                    if st.button("Save", key=f"{prefix}btn_save_{m_id}", use_container_width=True, type="primary"):
                         save_forecast(m_id, pred_h, pred_a)
-                        st.session_state[f"edit_{m_id}"] = False
+                        st.session_state[edit_key] = False
                         st.rerun()
         else:
-            # Visualization for Results and Points
             if m_id in user_forecasts:
                 u_h = user_forecasts[m_id]['home_goals']
                 u_a = user_forecasts[m_id]['away_goals']
                 pts = calculate_points(actual_home, actual_away, u_h, u_a)
                 
-                # Dynamic Point Badges
                 pt_color = "#28a745" if pts == 3 else ("#ffc107" if pts == 1 else "#dc3545")
                 text_color = "white" if pts != 1 else "#333"
                 
@@ -287,12 +281,10 @@ def render_match(match, user_forecasts):
                 </div>
                 """, unsafe_allow_html=True)
 
-
 # --- MAIN APP ---
 def main_app():
     c1, c2 = st.columns([8, 1])
     with c2:
-        # Standard default button style (grey)
         if st.button("🚪 Logout"):
             try: supabase.auth.sign_out()
             except: pass
@@ -317,37 +309,32 @@ def main_app():
         if not matches:
             st.warning("No matches available from the API at the moment.")
         else:
-            # Parse Dates for Grouping
             for m in matches:
                 try:
-                    # Parse UTC string from API (e.g. "2026-06-11T20:00:00Z")
                     m['parsed_date'] = datetime.strptime(m['utcDate'], "%Y-%m-%dT%H:%M:%SZ")
                 except:
-                    m['parsed_date'] = datetime.now() # Fallback
+                    m['parsed_date'] = datetime.now()
             
-            # Sort matches by date
             matches.sort(key=lambda x: x['parsed_date'])
             
-            # Filter matches into Sub-Tabs
             upcoming_matches = [m for m in matches if m['status'] in ['SCHEDULED', 'TIMED', 'IN_PLAY', 'PAUSED']]
             historical_matches = [m for m in matches if m['status'] in ['FINISHED', 'AWARDED']]
             
             sub1, sub2, sub3 = st.tabs(["🔜 Upcoming", "⏪ Historical", "📋 All Matches"])
             
-            def render_match_group(match_list):
+            def render_match_group(match_list, prefix):
                 if not match_list:
                     st.info("No matches found in this category.")
                     return
-                # Group by day string
                 grouped = groupby(match_list, key=lambda x: x['parsed_date'].strftime("%A, %B %d, %Y"))
                 for date_str, group in grouped:
                     st.markdown(f"<h4 style='background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin-top: 25px;'>📅 {date_str}</h4>", unsafe_allow_html=True)
                     for match in group:
-                        render_match(match, user_forecasts)
+                        render_match(match, user_forecasts, prefix)
 
-            with sub1: render_match_group(upcoming_matches)
-            with sub2: render_match_group(historical_matches)
-            with sub3: render_match_group(matches)
+            with sub1: render_match_group(upcoming_matches, prefix="up_")
+            with sub2: render_match_group(historical_matches, prefix="hist_")
+            with sub3: render_match_group(matches, prefix="all_")
 
     with tab2:
         st.write("")
