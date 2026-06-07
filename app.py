@@ -43,7 +43,7 @@ def inject_light_mode_css():
         button[kind="primary"] { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; font-weight: bold; }
         button[kind="secondary"] { background-color: #fd7e14 !important; border-color: #fd7e14 !important; color: white !important; font-weight: bold; }
         
-        /* FORCE FORECAST INPUTS TO BE COMPACT AND CENTERED UNDER FLAGS */
+        /* FORCE FORECAST INPUTS TO BE COMPACT AND CENTERED */
         div[data-testid="stNumberInput"] {
             max-width: 80px !important;
             margin: 0 auto !important;
@@ -54,12 +54,28 @@ def inject_light_mode_css():
         .stTabs [data-baseweb="tab-list"] { justify-content: center; gap: 15px; }
         div[data-testid="column"] { align-self: center; }
         
-        /* --- MOBILE FIX: Force Forecast Row to stay horizontal --- */
+        /* --- BULLETPROOF MOBILE FIX --- */
         @media (max-width: 768px) {
+            /* 1. Force the row to remain horizontal */
             div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) {
+                display: flex !important;
                 flex-direction: row !important;
                 flex-wrap: nowrap !important;
                 align-items: center !important;
+            }
+            /* 2. Override Streamlit's inline 100% width constraint */
+            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"] {
+                min-width: 0 !important;
+            }
+            /* 3. Force exact percentage widths to mimic the 1:0.4:1 ratio */
+            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"]:nth-child(1),
+            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"]:nth-child(3) {
+                max-width: 45% !important; 
+                flex: 1 1 45% !important;
+            }
+            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"]:nth-child(2) {
+                max-width: 10% !important; 
+                flex: 0 0 10% !important;
             }
         }
     </style>
@@ -244,7 +260,7 @@ def render_match(match, user_forecasts, prefix=""):
 
         st.markdown("<hr style='margin: 15px 0 10px 0; border: 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
 
-        # 3. ACTUAL RESULTS (Strict 1:0.4:1 Flex Ratio to match flags perfectly)
+        # 3. ACTUAL RESULTS (Strict 1:0.4:1 Flex Ratio)
         st.markdown("<div style='text-align: center; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;'>Actual Result</div>", unsafe_allow_html=True)
         if actual_home is not None and actual_away is not None:
             st.markdown(f"""
@@ -275,7 +291,7 @@ def render_match(match, user_forecasts, prefix=""):
             </div>
             """, unsafe_allow_html=True)
 
-        # 4. FORECAST SECTION (Strict 1:0.4:1 Streamlit Columns to match Flex Ratios)
+        # 4. FORECAST SECTION (Columns wrapped with keep-horizontal for Mobile overrides)
         st.markdown("<div style='text-align: center; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;'>Your Forecast</div>", unsafe_allow_html=True)
         
         db_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
@@ -285,11 +301,11 @@ def render_match(match, user_forecasts, prefix=""):
         
         is_locked = not st.session_state[edit_key]
         
-        # Columns ratio perfectly aligns with flex ratio
+        # Columns perfectly aligned
         fc1, fc2, fc3 = st.columns([1, 0.4, 1])
         
         with fc1:
-            # Trigger mobile fix
+            # The keep-horizontal marker triggers the CSS block
             st.markdown("<div class='keep-horizontal'></div>", unsafe_allow_html=True)
             if is_locked:
                 locked_style = "background-color: #E9ECEF; color: #555; border: 1px solid #CCC; border-radius: 6px; text-align: center; font-size: 1.2rem; padding: 4px; height: 38px; line-height: 28px; font-weight: bold; max-width: 80px; margin: 0 auto;"
@@ -313,7 +329,7 @@ def render_match(match, user_forecasts, prefix=""):
                 else:
                     st.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px; max-width: 80px; margin: 0 auto;'>-</div>", unsafe_allow_html=True)
 
-        # Dedicated Row for the Button to keep inputs uncluttered
+        # Dedicated Row for the Button (Allows full width on mobile)
         btn_c1, btn_c2, btn_c3 = st.columns([1, 1.5, 1])
         with btn_c2:
             st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
