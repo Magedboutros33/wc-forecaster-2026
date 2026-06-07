@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="World Cup 2026 Forecaster", page_icon="🏆", layout="wide") # Changed to wide to fit the group sorting better!
+st.set_page_config(page_title="World Cup 2026 Forecaster", page_icon="🏆", layout="wide")
 
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -23,7 +23,7 @@ except Exception as e:
     st.error(f"Failed to connect to database. Check your secrets configuration. Error: {e}")
 
 # --- FETCH LIVE API DATA ---
-@st.cache_data(ttl=3600) # Cache for 1 hour to save API limits
+@st.cache_data(ttl=3600)
 def get_wc_matches():
     url = "https://v3.football.api-sports.io/fixtures"
     querystring = {"league": "1", "season": "2026"}
@@ -42,7 +42,7 @@ def get_wc_matches():
             matches[m_id] = {
                 "id": m_id,
                 "date": formatted_date,
-                "status": match['fixture']['status']['short'], # 'NS', 'FT', etc.
+                "status": match['fixture']['status']['short'],
                 "home_team": match['teams']['home']['name'],
                 "away_team": match['teams']['away']['name'],
                 "home_logo": match['teams']['home']['logo'],
@@ -170,7 +170,6 @@ def main_app():
             forecasts_res = supabase.table("match_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
             user_forecasts = {f['match_id']: f for f in forecasts_res.data} if forecasts_res.data else {}
 
-            # Using columns to make matches look cleaner
             m_cols = st.columns(2)
             idx = 0
             
@@ -254,11 +253,9 @@ def main_app():
         st.markdown("<p style='text-align: center; color: gray;'>Lock in your big-picture guesses here!</p>", unsafe_allow_html=True)
         st.write("")
         
-        # 1. Fetch existing extra forecasts for this user
         extra_res = supabase.table("extra_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
         existing_extra = extra_res.data[0] if extra_res.data else None
         
-        # 2. Extract unique teams dynamically from the API matches for our dropdowns
         unique_teams = []
         if all_matches:
             teams_set = set()
@@ -267,10 +264,85 @@ def main_app():
                 teams_set.add(m['away_team'])
             unique_teams = sorted(list(teams_set))
             
-        # Fallback list just in case the API hasn't loaded teams yet
         if not unique_teams:
             unique_teams = ["Argentina", "Brazil", "England", "France", "Germany", "Portugal", "Spain", "USA"]
             
         star_players = ["Kylian Mbappé", "Erling Haaland", "Harry Kane", "Vinícius Júnior", "Jude Bellingham", "Lionel Messi", "Cristiano Ronaldo", "Kevin De Bruyne", "Other"]
 
-        # Helpers to safely find the index for
+        def get_dd_index(options_list, saved_val):
+            return options_list.index(saved_val) if saved_val in options_list else 0
+            
+        def get_rank_idx(team_list, saved_list, pos):
+            if saved_list and len(saved_list) > pos and saved_list[pos] in team_list:
+                return team_list.index(saved_list[pos]) + 1
+            return 0
+
+        def_winner = existing_extra.get('cup_winner', '') if existing_extra else ''
+        def_scorer = existing_extra.get('top_scorer', '') if existing_extra else ''
+        def_most_goals = existing_extra.get('most_goals_team', '') if existing_extra else ''
+        
+        with st.form("extra_forecasts_form"):
+            st.subheader("🏆 The Big Three")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                cup_winner = st.selectbox("Tournament Winner", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_winner))
+            with col2:
+                top_scorer = st.selectbox("Golden Boot", options=[""] + star_players, index=get_dd_index([""] + star_players, def_scorer))
+            with col3:
+                most_goals = st.selectbox("Most Goals (Team)", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_most_goals))
+                
+            st.divider()
+            
+            st.subheader("📊 Group Stage Rankings")
+            st.markdown("Select the 1st, 2nd, 3rd, and 4th place finishers for all 12 groups.")
+            
+            groups_dict = {}
+            for i in range(12):
+                letter = chr(65 + i)
+                start = i * 4
+                groups_dict[f"Group {letter}"] = unique_teams[start:start+4] if len(unique_teams) >= (start+4) else ["Team 1", "Team 2", "Team 3", "Team 4"]
+
+            group_sort_data = {}
+            saved_groups = existing_extra.get('groups_sort', {}) if existing_extra else {}
+            
+            g_cols = st.columns(4)
+            for idx, (grp_name, grp_teams) in enumerate(groups_dict.items()):
+                with g_cols[idx % 4]:
+                    with st.container(border=True):
+                        st.markdown(f"<h5 style='text-align: center; color: #1E88E5;'>{grp_name}</h5>", unsafe_allow_html=True)
+                        
+                        saved_sort = saved_groups.get(grp_name, [])
+                        
+                        p1 = st.selectbox("1st", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 0), key=f"{grp_name}_1")
+                        p2 = st.selectbox("2nd", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 1), key=f"{grp_name}_2")
+                        p3 = st.selectbox("3rd", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 2), key=f"{grp_name}_3")
+                        p4 = st.selectbox("4th", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 3), key=f"{grp_name}_4")
+                        
+                        group_sort_data[grp_name] = [p1, p2, p3, p4]
+
+            st.write("")
+            submitted = st.form_submit_button("Save All Extra Forecasts", type="primary", use_container_width=True)
+            
+            if submitted:
+                payload = {
+                    "user_id": st.session_state['user_id'],
+                    "cup_winner": cup_winner,
+                    "top_scorer": top_scorer,
+                    "most_goals_team": most_goals,
+                    "groups_sort": group_sort_data
+                }
+                
+                if existing_extra:
+                    supabase.table("extra_forecasts").update(payload).eq("id", existing_extra['id']).execute()
+                else:
+                    supabase.table("extra_forecasts").insert(payload).execute()
+                    
+                st.success("All predictions and group sortings locked in! 🔒")
+                st.rerun()
+
+# --- APP ROUTING ---
+if not st.session_state.get('logged_in', False):
+    auth_page()
+else:
+    main_app()
