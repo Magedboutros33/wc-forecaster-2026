@@ -46,7 +46,9 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 inject_custom_css()
-
+# --- DEBUGGING SECRETS (Remove later) ---
+st.warning(f"URL Length: {len(st.secrets['SUPABASE_URL'])}")
+st.warning(f"Key Length: {len(st.secrets['SUPABASE_KEY'])}")
 # --- AUTHENTICATION VIEW (LOGIN & SIGNUP) ---
 def auth_page():
     st.write("")
