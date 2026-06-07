@@ -242,48 +242,115 @@ def main_app():
     with tab3:
          st.markdown("### Scoring Rules 📐\n* **3 Points:** Exact score.\n* **1 Point:** Correct winner/draw.\n* **0 Points:** Incorrect result.")
          
-    with tab4:
+   with tab4:
         st.write("")
         st.markdown("<h3 style='text-align: center;'>🔮 Tournament Predictions</h3>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: gray;'>Lock in your big-picture guesses here!</p>", unsafe_allow_html=True)
         st.write("")
         
-        # Fetch existing extra forecasts for this user
+        # 1. Fetch existing extra forecasts for this user
         extra_res = supabase.table("extra_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
         existing_extra = extra_res.data[0] if extra_res.data else None
         
-        # Set Default Values
+        # 2. Extract unique teams dynamically from the API matches for our dropdowns
+        unique_teams = []
+        if all_matches:
+            teams_set = set()
+            for m in all_matches.values():
+                teams_set.add(m['home_team'])
+                teams_set.add(m['away_team'])
+            unique_teams = sorted(list(teams_set))
+            
+        # Fallback list just in case the API hasn't loaded teams yet
+        if not unique_teams:
+            unique_teams = ["Argentina", "Brazil", "England", "France", "Germany", "Portugal", "Spain", "USA"]
+            
+        star_players = ["Kylian Mbappé", "Erling Haaland", "Harry Kane", "Vinícius Júnior", "Jude Bellingham", "Lionel Messi", "Cristiano Ronaldo", "Kevin De Bruyne", "Other"]
+
+        # Helpers to safely find the index for default dropdown values
+        def get_dd_index(options_list, saved_val):
+            return options_list.index(saved_val) if saved_val in options_list else 0
+            
+        def get_rank_idx(team_list, saved_list, pos):
+            if saved_list and len(saved_list) > pos and saved_list[pos] in team_list:
+                return team_list.index(saved_list[pos]) + 1
+            return 0
+
+        # Set Default Values from Database
         def_winner = existing_extra.get('cup_winner', '') if existing_extra else ''
         def_scorer = existing_extra.get('top_scorer', '') if existing_extra else ''
         def_most_goals = existing_extra.get('most_goals_team', '') if existing_extra else ''
         
-        # Build the UI Form
+        # 3. Build the UI Form
         with st.form("extra_forecasts_form"):
             st.subheader("🏆 The Big Three")
-            cup_winner = st.text_input("Overall Tournament Winner", value=def_winner, placeholder="e.g., Brazil")
-            top_scorer = st.text_input("Golden Boot (Top Scorer)", value=def_scorer, placeholder="e.g., Kylian Mbappé")
-            most_goals = st.text_input("Team with Most Goals", value=def_most_goals, placeholder="e.g., England")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                cup_winner = st.selectbox("Tournament Winner", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_winner))
+            with col2:
+                top_scorer = st.selectbox("Golden Boot", options=[""] + star_players, index=get_dd_index([""] + star_players, def_scorer))
+            with col3:
+                most_goals = st.selectbox("Most Goals (Team)", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_most_goals))
                 
+            st.divider()
+            
+            st.subheader("📊 Group Stage Rankings")
+            st.markdown("Select the 1st, 2nd, 3rd, and 4th place finishers for all 12 groups.")
+            
+            # Grouping the teams into the 12 World Cup groups (A through L)
+            groups_dict = {}
+            for i in range(12):
+                letter = chr(65 + i) # A, B, C... L
+                start = i * 4
+                # Assigns 4 teams to each group based on the API data
+                groups_dict[f"Group {letter}"] = unique_teams[start:start+4] if len(unique_teams) >= (start+4) else ["Team 1", "Team 2", "Team 3", "Team 4"]
+
+            group_sort_data = {}
+            saved_groups = existing_extra.get('groups_sort', {}) if existing_extra else {}
+            
+            # Display groups dynamically in a 3-column grid
+            g_cols = st.columns(3)
+            for idx, (grp_name, grp_teams) in enumerate(groups_dict.items()):
+                with g_cols[idx % 3]:
+                    with st.container(border=True):
+                        st.markdown(f"<h5 style='text-align: center; color: #1E88E5;'>{grp_name}</h5>", unsafe_allow_html=True)
+                        
+                        saved_sort = saved_groups.get(grp_name, [])
+                        
+                        p1 = st.selectbox("1st", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 0), key=f"{grp_name}_1")
+                        p2 = st.selectbox("2nd", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 1), key=f"{grp_name}_2")
+                        p3 = st.selectbox("3rd", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 2), key=f"{grp_name}_3")
+                        p4 = st.selectbox("4th", options=[""] + grp_teams, index=get_rank_idx(grp_teams, saved_sort, 3), key=f"{grp_name}_4")
+                        
+                        # Save their selections into a list
+                        group_sort_data[grp_name] = [p1, p2, p3, p4]
+
             st.write("")
-            submitted = st.form_submit_button("Save Extra Forecasts", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("Save All Extra Forecasts", type="primary", use_container_width=True)
             
             if submitted:
                 payload = {
                     "user_id": st.session_state['user_id'],
                     "cup_winner": cup_winner,
                     "top_scorer": top_scorer,
-                    "most_goals_team": most_goals
+                    "most_goals_team": most_goals,
+                    "groups_sort": group_sort_data # Saves perfectly as JSON in Supabase!
                 }
                 
-                # Update if exists, Insert if new
                 if existing_extra:
                     supabase.table("extra_forecasts").update(payload).eq("id", existing_extra['id']).execute()
                 else:
                     supabase.table("extra_forecasts").insert(payload).execute()
                     
-                st.success("Big predictions locked in! 🔒")
+                st.success("All predictions and group sortings locked in! 🔒")
                 st.rerun()
 
+# --- APP ROUTING ---
+if not st.session_state.get('logged_in', False):
+    auth_page()
+else:
+    main_app()
 # --- APP ROUTING ---
 if not st.session_state.get('logged_in', False):
     auth_page()
