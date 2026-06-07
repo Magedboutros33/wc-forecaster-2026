@@ -5,6 +5,7 @@ from supabase import create_client, Client
 import pandas as pd
 from datetime import datetime
 from itertools import groupby
+import pytz
 
 # --- CONFIGURATION & INITIALIZATION ---
 st.set_page_config(page_title="WC 2026 Forecast", layout="wide", page_icon="⚽")
@@ -32,31 +33,23 @@ if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 def inject_light_mode_css():
     st.markdown("""
     <style>
-        /* Force App Background to White */
         .stApp { background-color: #FFFFFF !important; color: #1E1E1E !important; }
         h1, h2, h3, h4, h5, p, label, span { color: #1E1E1E !important; }
         
-        /* Force Input Fields to White with Dark Text */
         div[data-baseweb="select"] > div, div[data-baseweb="input"] > div, input {
             background-color: #F8F9FA !important; color: #1E1E1E !important; border: 1px solid #CCCCCC !important;
         }
         
-        /* CUSTOM BUTTON COLORS */
-        /* Primary Button (Save) -> Green */
-        button[kind="primary"] {
-            background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; font-weight: bold;
-        }
-        /* Secondary Button (Change) -> Orange */
-        button[kind="secondary"] {
-            background-color: #fd7e14 !important; border-color: #fd7e14 !important; color: white !important; font-weight: bold;
-        }
+        button[kind="primary"] { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; font-weight: bold; }
+        button[kind="secondary"] { background-color: #fd7e14 !important; border-color: #fd7e14 !important; color: white !important; font-weight: bold; }
         
-        /* Make number inputs smaller and center the text */
         input[type="number"] { text-align: center !important; font-size: 1.2rem !important; padding: 5px !important; }
         
-        /* General styling */
         [data-testid="collapsedControl"] { display: none; }
         .stTabs [data-baseweb="tab-list"] { justify-content: center; gap: 15px; }
+        
+        /* Custom spacing for the forecast columns */
+        div[data-testid="column"] { align-self: center; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -97,7 +90,6 @@ def get_flag(team):
     if team in FLAG_URLS: return f"https://flagcdn.com/w40/{FLAG_URLS[team]}.png"
     return "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/White_flag_of_surrender.svg/40px-White_flag_of_surrender.svg.png"
 
-# --- SMART CALLBACKS FOR EXTRA TAB ---
 def update_group_callback(grp, pos):
     new_val = st.session_state[f"widget_{grp}_{pos}"]
     st.session_state.groups_state[grp][pos] = new_val
@@ -114,7 +106,6 @@ def clear_group_callback(grp, pos):
     if f"widget_{grp}_{pos}" in st.session_state:
         st.session_state[f"widget_{grp}_{pos}"] = ""
 
-# --- API CONNECTION (Cached) ---
 @st.cache_data(ttl=600) 
 def get_matches_from_api():
     url = "https://api.football-data.org/v4/competitions/WC/matches"
@@ -127,7 +118,6 @@ def get_matches_from_api():
     except Exception:
         return []
 
-# --- SCORING ENGINE ---
 def calculate_points(actual_h, actual_a, pred_h, pred_a):
     if actual_h is None or actual_a is None: return 0
     if actual_h == pred_h and actual_a == pred_a: return 3
@@ -136,7 +126,6 @@ def calculate_points(actual_h, actual_a, pred_h, pred_a):
        (actual_h == actual_a and pred_h == pred_a): return 1
     return 0
 
-# --- DATA WRITER ---
 def save_forecast(match_id, home_goals, away_goals):
     user_id = st.session_state['user_id']
     existing = supabase.table("match_forecasts").select("id").eq("user_id", user_id).eq("match_id", match_id).execute()
@@ -148,8 +137,10 @@ def save_forecast(match_id, home_goals, away_goals):
     else:
         supabase.table("match_forecasts").insert(forecast_data).execute()
         st.toast("Forecast saved! ⚽")
+        
+    st.session_state[f"cache_h_{match_id}"] = home_goals
+    st.session_state[f"cache_a_{match_id}"] = away_goals
 
-# --- AUTHENTICATION PAGE ---
 def auth_page():
     st.write("")
     st.markdown("<h1 style='text-align: center;'>🏆 WC 2026 Forecaster</h1>", unsafe_allow_html=True)
@@ -187,7 +178,7 @@ def auth_page():
                     except Exception as e:
                         st.error(f"Error creating account: {e}")
 
-# --- MATCH RENDERER COMPONENT ---
+# --- NEW FULLY REDESIGNED MATCH RENDERER ---
 def render_match(match, user_forecasts, prefix=""):
     m_id = match['id']
     status = match['status']
@@ -200,101 +191,140 @@ def render_match(match, user_forecasts, prefix=""):
     actual_home = match['score']['fullTime'].get('home')
     actual_away = match['score']['fullTime'].get('away')
 
-    # Manage Edit State with unique prefix
+    # Convert UTC to Egypt Time (EEST)
+    try:
+        utc_dt = datetime.strptime(match['utcDate'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=pytz.UTC)
+        egypt_dt = utc_dt.astimezone(pytz.timezone('Africa/Cairo'))
+        time_str = egypt_dt.strftime("%I:%M %p")
+    except:
+        time_str = "TBD"
+
     has_forecast = m_id in user_forecasts
     edit_key = f"{prefix}edit_{m_id}"
-    
-    if edit_key not in st.session_state:
-        st.session_state[edit_key] = not has_forecast
+    if edit_key not in st.session_state: st.session_state[edit_key] = not has_forecast
+
+    # Dynamic Font Sizing for long country names
+    home_font = "0.95rem" if len(home_team) > 12 else "1.2rem"
+    away_font = "0.95rem" if len(away_team) > 12 else "1.2rem"
 
     with st.container(border=True):
+        # 1. MATCH TIME & STATUS
+        st.markdown(f"<div style='text-align: center; color: #777; font-size: 0.85rem; font-weight: bold; margin-bottom: 12px;'>🕒 {time_str} (Egypt Time) &nbsp;•&nbsp; {status}</div>", unsafe_allow_html=True)
+
+        # 2. TEAMS AND FLAGS (Name on top, Flag below)
         st.markdown(f"""
-        <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
-            <div style='display: flex; align-items: center; gap: 10px; flex: 1;'>
-                <img src='{home_flag}' width='35' style='border-radius: 3px;'>
-                <h3 style='margin: 0;'>{home_team}</h3>
+        <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;'>
+            <div style='flex: 1; text-align: center; display: flex; flex-direction: column; align-items: center;'>
+                <div style='height: 35px; display: flex; align-items: center; justify-content: center;'>
+                    <h4 style='margin: 0; font-size: {home_font}; text-align: center; line-height: 1.1;'>{home_team}</h4>
+                </div>
+                <img src='{home_flag}' width='50' style='border-radius: 4px; margin-top: 5px; border: 1px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>
             </div>
-            <div style='flex: 0.5; text-align: center;'>
-                <span style='color: #888; font-size: 0.9rem; font-weight: bold;'>{status}</span><br>
-                <span style='font-size: 1.2rem; font-weight: bold;'>vs</span>
+            <div style='flex: 0.4; text-align: center; align-self: center; margin-top: 15px;'>
+                <span style='font-size: 1.2rem; font-weight: bold; color: #aaa;'>vs</span>
             </div>
-            <div style='display: flex; align-items: center; gap: 10px; flex: 1; justify-content: flex-end;'>
-                <h3 style='margin: 0;'>{away_team}</h3>
-                <img src='{away_flag}' width='35' style='border-radius: 3px;'>
+            <div style='flex: 1; text-align: center; display: flex; flex-direction: column; align-items: center;'>
+                <div style='height: 35px; display: flex; align-items: center; justify-content: center;'>
+                    <h4 style='margin: 0; font-size: {away_font}; text-align: center; line-height: 1.1;'>{away_team}</h4>
+                </div>
+                <img src='{away_flag}' width='50' style='border-radius: 4px; margin-top: 5px; border: 1px solid #ddd; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>
             </div>
         </div>
-        <hr style='margin: 5px 0 15px 0; border: 0; border-top: 1px solid #eee;'>
         """, unsafe_allow_html=True)
 
-        if status in ["TIMED", "SCHEDULED"]:
-            # Prioritize local cache over database lag
-            db_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
-            db_away = user_forecasts.get(m_id, {}).get('away_goals', 0)
+        st.markdown("<hr style='margin: 15px 0 10px 0; border: 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
+
+        # 3. ACTUAL RESULTS (Side-by-side boxes)
+        st.markdown("<div style='text-align: center; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;'>Actual Result</div>", unsafe_allow_html=True)
+        if actual_home is not None and actual_away is not None:
+            st.markdown(f"""
+            <div style='display: flex; justify-content: center; align-items: center; gap: 15px; margin-bottom: 15px;'>
+                <div style='background-color: #f1f3f5; padding: 5px 20px; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #ddd;'>{actual_home}</div>
+                <span style='color: #888; font-weight: bold;'>-</span>
+                <div style='background-color: #f1f3f5; padding: 5px 20px; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #ddd;'>{actual_away}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style='display: flex; justify-content: center; align-items: center; gap: 15px; margin-bottom: 15px;'>
+                <div style='background-color: #f8f9fa; color: #ccc; padding: 5px 20px; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #eee;'>-</div>
+                <span style='color: #ccc; font-weight: bold;'>-</span>
+                <div style='background-color: #f8f9fa; color: #ccc; padding: 5px 20px; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #eee;'>-</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # 4. FORECAST SECTION
+        st.markdown("<div style='text-align: center; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;'>Your Forecast</div>", unsafe_allow_html=True)
+        
+        db_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
+        db_away = user_forecasts.get(m_id, {}).get('away_goals', 0)
+        saved_home = st.session_state.get(f"cache_h_{m_id}", db_home)
+        saved_away = st.session_state.get(f"cache_a_{m_id}", db_away)
+        
+        is_locked = not st.session_state[edit_key]
+        
+        # Center the inputs using spacer columns
+        fc_space1, fc_h, fc_dash, fc_a, fc_btn, fc_space2 = st.columns([1, 1.2, 0.2, 1.2, 2, 1])
+        
+        if is_locked:
+            locked_style = "background-color: #E9ECEF; color: #555; border: 1px solid #CCC; border-radius: 6px; text-align: center; font-size: 1.2rem; padding: 4px; height: 38px; line-height: 28px; font-weight: bold;"
+            fc_h.markdown(f"<div style='{locked_style}'>{saved_home}</div>", unsafe_allow_html=True)
+            fc_dash.markdown("<div style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
+            fc_a.markdown(f"<div style='{locked_style}'>{saved_away}</div>", unsafe_allow_html=True)
             
-            saved_home = st.session_state.get(f"cache_h_{m_id}", db_home)
-            saved_away = st.session_state.get(f"cache_a_{m_id}", db_away)
-            
-            ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([1.5, 1.5, 0.5, 1.5, 0.5, 2, 1])
-            is_locked = not st.session_state[edit_key]
-            
-            if is_locked:
-                # FIX: Render completely static HTML boxes when locked. This guarantees numbers cannot disappear.
-                locked_style = "background-color: #E9ECEF; color: #555; border: 1px solid #CCC; border-radius: 6px; text-align: center; font-size: 1.2rem; padding: 4px; height: 38px; line-height: 28px; font-weight: bold;"
-                ic2.markdown(f"<div style='{locked_style}'>{saved_home}</div>", unsafe_allow_html=True)
-                ic3.markdown("<h3 style='text-align: center; margin-top: 0px;'>-</h3>", unsafe_allow_html=True)
-                ic4.markdown(f"<div style='{locked_style}'>{saved_away}</div>", unsafe_allow_html=True)
-                
-                with ic6:
+            with fc_btn:
+                # Disable changing if the match has already started/finished
+                if status in ["TIMED", "SCHEDULED"]:
                     if st.button("Change", key=f"{prefix}btn_change_{m_id}", use_container_width=True, type="secondary"):
                         st.session_state[edit_key] = True
                         st.rerun()
-            else:
-                # Render active editable input fields
-                pred_h = ic2.number_input("H", min_value=0, value=int(saved_home), key=f"{prefix}h_{m_id}", label_visibility="collapsed")
-                ic3.markdown("<h3 style='text-align: center; margin-top: 0px;'>-</h3>", unsafe_allow_html=True)
-                pred_a = ic4.number_input("A", min_value=0, value=int(saved_away), key=f"{prefix}a_{m_id}", label_visibility="collapsed")
+                else:
+                    st.markdown("<div style='text-align: center; padding-top: 8px; color: #dc3545; font-size: 0.85rem; font-weight: bold;'>Locked</div>", unsafe_allow_html=True)
+        else:
+            if status in ["TIMED", "SCHEDULED"]:
+                pred_h = fc_h.number_input("H", min_value=0, value=int(saved_home), key=f"{prefix}h_{m_id}", label_visibility="collapsed")
+                fc_dash.markdown("<div style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
+                pred_a = fc_a.number_input("A", min_value=0, value=int(saved_away), key=f"{prefix}a_{m_id}", label_visibility="collapsed")
                 
-                with ic6:
+                with fc_btn:
                     if st.button("Save", key=f"{prefix}btn_save_{m_id}", use_container_width=True, type="primary"):
                         save_forecast(m_id, pred_h, pred_a)
-                        # Cache the numbers instantly
                         st.session_state[f"cache_h_{m_id}"] = pred_h
                         st.session_state[f"cache_a_{m_id}"] = pred_a
-                        # Lock the UI
                         st.session_state[edit_key] = False
                         st.rerun()
-        else:
-            if m_id in user_forecasts:
-                u_h = user_forecasts[m_id]['home_goals']
-                u_a = user_forecasts[m_id]['away_goals']
-                pts = calculate_points(actual_home, actual_away, u_h, u_a)
-                
-                pt_color = "#28a745" if pts == 3 else ("#ffc107" if pts == 1 else "#dc3545")
-                text_color = "white" if pts != 1 else "#333"
+            else:
+                fc_h.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px;'>-</div>", unsafe_allow_html=True)
+                fc_dash.markdown("<div style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
+                fc_a.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px;'>-</div>", unsafe_allow_html=True)
+                fc_btn.markdown("<div style='text-align: center; padding-top: 8px; color: #dc3545; font-size: 0.85rem; font-weight: bold;'>Locked</div>", unsafe_allow_html=True)
+
+        # 5. REWARD SECTION
+        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+        if status in ['FINISHED', 'AWARDED']:
+            if has_forecast:
+                pts = calculate_points(actual_home, actual_away, saved_home, saved_away)
+                bg_color = "#d4edda" if pts == 3 else ("#fff3cd" if pts == 1 else "#f8d7da")
+                text_color = "#155724" if pts == 3 else ("#856404" if pts == 1 else "#721c24")
+                border_color = "#c3e6cb" if pts == 3 else ("#ffeeba" if pts == 1 else "#f5c6cb")
                 
                 st.markdown(f"""
-                <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; display: flex; justify-content: space-around; align-items: center;'>
-                    <div style='text-align: center;'>
-                        <p style='margin:0; color:#666; font-size: 0.9rem;'>Actual Result</p>
-                        <h2 style='margin:0;'>{actual_home} - {actual_away}</h2>
-                    </div>
-                    <div style='text-align: center;'>
-                        <p style='margin:0; color:#666; font-size: 0.9rem;'>Your Forecast</p>
-                        <h3 style='margin:0; color: #555;'>{u_h} - {u_a}</h3>
-                    </div>
-                    <div style='background-color: {pt_color}; color: {text_color}; padding: 10px 20px; border-radius: 25px; font-weight: bold; font-size: 1.1rem;'>
-                        +{pts} Points
-                    </div>
+                <div style='background-color: {bg_color}; color: {text_color}; border: 1px solid {border_color}; padding: 8px; border-radius: 6px; text-align: center; font-weight: bold; font-size: 0.9rem;'>
+                    Reward: {pts} Point{'s' if pts != 1 else ''}
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.markdown(f"""
-                <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
-                    <p style='margin:0; color:#666; font-size: 0.9rem;'>Actual Result</p>
-                    <h2 style='margin:0;'>{actual_home} - {actual_away}</h2>
-                    <p style='margin: 5px 0 0 0; color: #dc3545; font-weight: bold;'>No forecast locked in. (0 Points)</p>
+                st.markdown("""
+                <div style='background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; padding: 8px; border-radius: 6px; text-align: center; font-weight: bold; font-size: 0.9rem;'>
+                    Reward: 0 Points (Missed Forecast)
                 </div>
                 """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style='background-color: #f8f9fa; color: #aaa; border: 1px dashed #ddd; padding: 8px; border-radius: 6px; text-align: center; font-weight: bold; font-size: 0.9rem;'>
+                Reward: Pending
+            </div>
+            """, unsafe_allow_html=True)
 
 # --- MAIN APP ---
 def main_app():
