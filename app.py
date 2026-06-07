@@ -148,10 +148,6 @@ def save_forecast(match_id, home_goals, away_goals):
     else:
         supabase.table("match_forecasts").insert(forecast_data).execute()
         st.toast("Forecast saved! ⚽")
-        
-    # FIX: Instantly cache the saved values locally to beat the database read delay
-    st.session_state[f"cache_h_{match_id}"] = home_goals
-    st.session_state[f"cache_a_{match_id}"] = away_goals
 
 # --- AUTHENTICATION PAGE ---
 def auth_page():
@@ -231,7 +227,7 @@ def render_match(match, user_forecasts, prefix=""):
         """, unsafe_allow_html=True)
 
         if status in ["TIMED", "SCHEDULED"]:
-            # FIX: Pull from DB, but override with local cache if it exists
+            # Prioritize local cache over database lag
             db_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
             db_away = user_forecasts.get(m_id, {}).get('away_goals', 0)
             
@@ -239,21 +235,32 @@ def render_match(match, user_forecasts, prefix=""):
             saved_away = st.session_state.get(f"cache_a_{m_id}", db_away)
             
             ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([1.5, 1.5, 0.5, 1.5, 0.5, 2, 1])
-            
             is_locked = not st.session_state[edit_key]
             
-            pred_h = ic2.number_input("H", min_value=0, value=int(saved_home), key=f"{prefix}h_{m_id}", disabled=is_locked, label_visibility="collapsed")
-            ic3.markdown("<h3 style='text-align: center; margin-top: 0px;'>-</h3>", unsafe_allow_html=True)
-            pred_a = ic4.number_input("A", min_value=0, value=int(saved_away), key=f"{prefix}a_{m_id}", disabled=is_locked, label_visibility="collapsed")
-            
-            with ic6:
-                if is_locked:
+            if is_locked:
+                # FIX: Render completely static HTML boxes when locked. This guarantees numbers cannot disappear.
+                locked_style = "background-color: #E9ECEF; color: #555; border: 1px solid #CCC; border-radius: 6px; text-align: center; font-size: 1.2rem; padding: 4px; height: 38px; line-height: 28px; font-weight: bold;"
+                ic2.markdown(f"<div style='{locked_style}'>{saved_home}</div>", unsafe_allow_html=True)
+                ic3.markdown("<h3 style='text-align: center; margin-top: 0px;'>-</h3>", unsafe_allow_html=True)
+                ic4.markdown(f"<div style='{locked_style}'>{saved_away}</div>", unsafe_allow_html=True)
+                
+                with ic6:
                     if st.button("Change", key=f"{prefix}btn_change_{m_id}", use_container_width=True, type="secondary"):
                         st.session_state[edit_key] = True
                         st.rerun()
-                else:
+            else:
+                # Render active editable input fields
+                pred_h = ic2.number_input("H", min_value=0, value=int(saved_home), key=f"{prefix}h_{m_id}", label_visibility="collapsed")
+                ic3.markdown("<h3 style='text-align: center; margin-top: 0px;'>-</h3>", unsafe_allow_html=True)
+                pred_a = ic4.number_input("A", min_value=0, value=int(saved_away), key=f"{prefix}a_{m_id}", label_visibility="collapsed")
+                
+                with ic6:
                     if st.button("Save", key=f"{prefix}btn_save_{m_id}", use_container_width=True, type="primary"):
                         save_forecast(m_id, pred_h, pred_a)
+                        # Cache the numbers instantly
+                        st.session_state[f"cache_h_{m_id}"] = pred_h
+                        st.session_state[f"cache_a_{m_id}"] = pred_a
+                        # Lock the UI
                         st.session_state[edit_key] = False
                         st.rerun()
         else:
