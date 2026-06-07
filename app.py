@@ -77,42 +77,49 @@ except Exception as e:
 
 # --- FETCH LIVE API DATA ---
 @st.cache_data(ttl=3600)
-@st.cache_data(ttl=3600)
 def get_wc_matches():
     url = "https://v3.football.api-sports.io/fixtures"
-    # We remove the season filter to see if the API returns the World Cup matches globally
-    querystring = {"league": "1"} 
+    # We must provide both league AND season
+    querystring = {"league": "1", "season": "2026"} 
     headers = {"x-apisports-key": st.secrets["API_FOOTBALL_KEY"]}
     
     try:
         response = requests.get(url, headers=headers, params=querystring)
-        # Add a debug print to see what the API is actually saying
         data = response.json()
         
-        if 'response' not in data or len(data['response']) == 0:
-            st.error(f"API Debug: {data}") # This will show you exactly why it's failing on the screen
+        # Debugging: check if we got actual data
+        if 'response' not in data or not data['response']:
+            # If the API returns nothing, let's show the user what it said
+            st.error(f"API returned no data: {data}")
             return {}
         
         matches = {}
         for match in data.get('response', []):
-            # ... (rest of your existing code stays exactly the same)
-            raw_date = match['fixture']['date']
+            # Safe data extraction
+            fixture = match.get('fixture', {})
+            teams = match.get('teams', {})
+            goals = match.get('goals', {})
+            
+            raw_date = fixture.get('date', '')
+            if not raw_date: continue
+            
             formatted_date = datetime.strptime(raw_date, "%Y-%m-%dT%H:%M:%S%z").strftime("%B %d, %Y - %H:%M")
-            m_id = match['fixture']['id']
+            
+            m_id = fixture.get('id')
             matches[m_id] = {
                 "id": m_id,
                 "date": formatted_date,
-                "status": match['fixture']['status']['short'],
-                "home_team": match['teams']['home']['name'],
-                "away_team": match['teams']['away']['name'],
-                "home_logo": match['teams']['home']['logo'],
-                "away_logo": match['teams']['away']['logo'],
-                "actual_home": match['goals']['home'],
-                "actual_away": match['goals']['away']
+                "status": fixture.get('status', {}).get('short', 'NS'),
+                "home_team": teams.get('home', {}).get('name', 'TBD'),
+                "away_team": teams.get('away', {}).get('name', 'TBD'),
+                "home_logo": teams.get('home', {}).get('logo', ''),
+                "away_logo": teams.get('away', {}).get('logo', ''),
+                "actual_home": goals.get('home'),
+                "actual_away": goals.get('away')
             }
         return matches
     except Exception as e:
-        st.error(f"Failed to fetch match data from API: {e}")
+        st.error(f"Error connecting to API: {e}")
         return {}
 
 # --- INITIALIZE SESSION STATES ---
