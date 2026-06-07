@@ -77,15 +77,25 @@ except Exception as e:
 
 # --- FETCH LIVE API DATA ---
 @st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600)
 def get_wc_matches():
     url = "https://v3.football.api-sports.io/fixtures"
-    querystring = {"league": "1", "season": "2026"}
+    # We remove the season filter to see if the API returns the World Cup matches globally
+    querystring = {"league": "1"} 
     headers = {"x-apisports-key": st.secrets["API_FOOTBALL_KEY"]}
+    
     try:
         response = requests.get(url, headers=headers, params=querystring)
+        # Add a debug print to see what the API is actually saying
         data = response.json()
+        
+        if 'response' not in data or len(data['response']) == 0:
+            st.error(f"API Debug: {data}") # This will show you exactly why it's failing on the screen
+            return {}
+        
         matches = {}
         for match in data.get('response', []):
+            # ... (rest of your existing code stays exactly the same)
             raw_date = match['fixture']['date']
             formatted_date = datetime.strptime(raw_date, "%Y-%m-%dT%H:%M:%S%z").strftime("%B %d, %Y - %H:%M")
             m_id = match['fixture']['id']
