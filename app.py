@@ -1,6 +1,8 @@
 import streamlit as st
 from supabase import create_client, Client
 import re
+import requests
+from datetime import datetime
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="World Cup 2026 Forecaster", page_icon="🏆", layout="centered")
@@ -8,21 +10,49 @@ st.set_page_config(page_title="World Cup 2026 Forecaster", page_icon="🏆", lay
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
 def init_connection():
-    # 1. Clean the URL completely
     raw_url = st.secrets["SUPABASE_URL"].strip()
     clean_url = raw_url.split("/rest/v1")[0].rstrip('/')
-    
-    # 2. Extract ONLY valid JWT characters for the security key
-    # This automatically strips out hidden quotes, slashes, spaces, or tabs
     raw_key = st.secrets["SUPABASE_KEY"]
     clean_key = "".join(re.findall(r'[A-Za-z0-9._\-]', raw_key))
-    
     return create_client(clean_url, clean_key)
 
 try:
     supabase: Client = init_connection()
 except Exception as e:
     st.error(f"Failed to connect to database. Check your secrets configuration. Error: {e}")
+
+# --- FETCH LIVE API DATA ---
+@st.cache_data(ttl=3600) # Cache for 1 hour to save API limits
+def get_wc_matches():
+    url = "https://v3.football.api-sports.io/fixtures"
+    # League 1 = World Cup, Season 2026
+    querystring = {"league": "1", "season": "2026"}
+    headers = {"x-apisports-key": st.secrets["API_FOOTBALL_KEY"]}
+    
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        data = response.json()
+        
+        matches = []
+        for match in data.get('response', []):
+            raw_date = match['fixture']['date']
+            # Convert ISO timestamp to readable date
+            formatted_date = datetime.strptime(raw_date, "%Y-%m-%dT%H:%M:%S%z").strftime("%B %d, %Y - %H:%M")
+            
+            clean_match = {
+                "id": match['fixture']['id'],
+                "date": formatted_date,
+                "status": match['fixture']['status']['short'],
+                "home_team": match['teams']['home']['name'],
+                "away_team": match['teams']['away']['name'],
+                "home_logo": match['teams']['home']['logo'],
+                "away_logo": match['teams']['away']['logo']
+            }
+            matches.append(clean_match)
+        return matches
+    except Exception as e:
+        st.error(f"Failed to fetch match data from API: {e}")
+        return []
 
 # --- INITIALIZE SESSION STATES ---
 if 'theme' not in st.session_state:
@@ -52,7 +82,7 @@ def inject_custom_css():
 
 inject_custom_css()
 
-# --- AUTHENTICATION VIEW (LOGIN & SIGNUP) ---
+# --- AUTHENTICATION VIEW ---
 def auth_page():
     st.write("")
     st.markdown("<h1 style='text-align: center;'>🏆 WC 2026 Forecaster</h1>", unsafe_allow_html=True)
@@ -68,11 +98,10 @@ def auth_page():
             if st.button("Login", type="primary"):
                 try:
                     response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
-                    user = response.user
                     st.session_state['logged_in'] = True
-                    st.session_state['user_id'] = user.id
+                    st.session_state['user_id'] = response.user.id
                     
-                    profile = supabase.table("profiles").select("name").eq("id", user.id).execute()
+                    profile = supabase.table("profiles").select("name").eq("id", response.user.id).execute()
                     if profile.data:
                         st.session_state['user_name'] = profile.data[0]['name']
                     else:
@@ -90,22 +119,17 @@ def auth_page():
             
             if st.button("Create Account", type="primary"):
                 if not reg_name or not reg_email or not reg_password:
-                    st.error("Please fill out all required fields (Name, Email, Password).")
+                    st.error("Please fill out all required fields.")
                 else:
                     try:
-                        # 1. Create user in Supabase Auth backend
                         auth_response = supabase.auth.sign_up({"email": reg_email, "password": reg_password})
-                        new_user_id = auth_response.user.id
-                        
-                        # 2. Add supplementary information to public.profiles table
                         supabase.table("profiles").insert({
-                            "id": new_user_id,
+                            "id": auth_response.user.id,
                             "name": reg_name,
                             "email": reg_email,
                             "phone_number": reg_phone
                         }).execute()
-                        
-                        st.success("Account created successfully! You can now switch to the Login tab.")
+                        st.success("Account created! You can now log in.")
                     except Exception as e:
                         st.error(f"Error creating account: {e}")
 
@@ -135,13 +159,68 @@ def main_app():
     tab1, tab2, tab3, tab4 = st.tabs(["⚽ Matches", "🏆 Leaderboard", "📜 Rules", "🔮 Extra"])
 
     with tab1:
-        st.info("Match forecasting will connect to the database next!")
+        st.write("")
+        all_matches = get_wc_matches()
+        
+        if not all_matches:
+            st.warning("No matches available yet. The API might be empty or the tournament schedule isn't fully published.")
+        else:
+            # Fetch all existing forecasts for this user in one go to keep the app fast
+            forecasts_res = supabase.table("match_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
+            user_forecasts = {f['match_id']: f for f in forecasts_res.data} if forecasts_res.data else {}
+
+            for match in all_matches:
+                # 'NS' means 'Not Started' or 'TBD' means 'To Be Decided'
+                if match['status'] in ['NS', 'TBD']:
+                    m_id = match['id']
+                    
+                    # Set defaults if the user already guessed this match
+                    existing = user_forecasts.get(m_id)
+                    def_home = existing['home_goals'] if existing else 0
+                    def_away = existing['away_goals'] if existing else 0
+
+                    with st.container(border=True):
+                        st.markdown(f"<p style='text-align: center; color: gray; font-size: 14px;'>{match['date']}</p>", unsafe_allow_html=True)
+                        
+                        col1, col2, col3 = st.columns([2, 1, 2])
+                        with col1:
+                            if match['home_logo']:
+                                st.markdown(f"<div style='text-align: center;'><img src='{match['home_logo']}' width='40'></div>", unsafe_allow_html=True)
+                            st.markdown(f"<h4 style='text-align: center;'>{match['home_team']}</h4>", unsafe_allow_html=True)
+                            home_goals = st.number_input("Home Goals", min_value=0, max_value=15, step=1, value=def_home, key=f"home_{m_id}", label_visibility="collapsed")
+                            
+                        with col2:
+                            st.markdown("<h4 style='text-align: center; color: gray; margin-top: 30px;'>VS</h4>", unsafe_allow_html=True)
+                            
+                        with col3:
+                            if match['away_logo']:
+                                st.markdown(f"<div style='text-align: center;'><img src='{match['away_logo']}' width='40'></div>", unsafe_allow_html=True)
+                            st.markdown(f"<h4 style='text-align: center;'>{match['away_team']}</h4>", unsafe_allow_html=True)
+                            away_goals = st.number_input("Away Goals", min_value=0, max_value=15, step=1, value=def_away, key=f"away_{m_id}", label_visibility="collapsed")
+                            
+                        st.write("") 
+                        if st.button("Save Forecast", key=f"btn_{m_id}", type="primary"):
+                            forecast_data = {
+                                "user_id": st.session_state['user_id'],
+                                "match_id": m_id,
+                                "home_goals": home_goals,
+                                "away_goals": away_goals
+                            }
+                            
+                            if existing:
+                                supabase.table("match_forecasts").update(forecast_data).eq("id", existing['id']).execute()
+                                st.toast("Forecast updated! ⚽")
+                            else:
+                                supabase.table("match_forecasts").insert(forecast_data).execute()
+                                st.toast("Forecast saved! ⚽")
+                            st.rerun()
+
     with tab2:
-        st.info("Leaderboard will connect to the database next!")
+        st.info("Leaderboard connecting next...")
     with tab3:
          st.markdown("### Scoring Rules 📐\n* **3 Points:** Exact score.\n* **1 Point:** Correct winner/draw.\n* **0 Points:** Incorrect result.")
     with tab4:
-        st.info("Extra forecasting will connect to the database next!")
+        st.info("Extra forecasting connecting next...")
 
 # --- APP ROUTING ---
 if not st.session_state.get('logged_in', False):
