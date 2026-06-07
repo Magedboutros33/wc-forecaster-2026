@@ -65,7 +65,7 @@ if 'user_id' not in st.session_state:
 if 'user_name' not in st.session_state:
     st.session_state['user_name'] = ""
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (UPDATED FOR WHITE SELECTIONS) ---
 def inject_custom_css():
     bg_color = "#0E1117" if st.session_state['theme'] == 'dark' else "#FFFFFF"
     text_color = "#FAFAFA" if st.session_state['theme'] == 'dark' else "#31333F"
@@ -74,10 +74,24 @@ def inject_custom_css():
     <style>
         [data-testid="collapsedControl"] {{ display: none; }}
         .stApp {{ background-color: {bg_color}; color: {text_color}; }}
-        h1, h2, h3, h4, p {{ color: {text_color} !important; }}
+        h1, h2, h3, h4, p, label {{ color: {text_color} !important; }}
         .stTabs [data-baseweb="tab-list"] {{ justify-content: center; gap: 15px; }}
         .stButton>button {{ width: 100%; border-radius: 8px; font-weight: 600; }}
-        input[type="number"] {{ text-align: center; font-size: 1.2rem; }}
+        input[type="number"], input[type="text"], input[type="password"] {{ text-align: center; font-size: 1.1rem; }}
+        
+        /* Force Dropdowns/Selectboxes to be White with Dark Text */
+        div[data-baseweb="select"] > div {{
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+            border: 1px solid #CCCCCC !important;
+        }}
+        div[data-baseweb="popover"] ul {{
+            background-color: #FFFFFF !important;
+            color: #000000 !important;
+        }}
+        li[role="option"] {{
+            color: #000000 !important;
+        }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -256,22 +270,23 @@ def main_app():
         extra_res = supabase.table("extra_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
         existing_extra = extra_res.data[0] if extra_res.data else None
         
-        # --- OFFICIAL 2026 WORLD CUP GROUPS AND TEAMS ---
+        # --- OFFICIAL 2026 WORLD CUP GROUPS WITH EMOJI FLAGS ---
         groups_dict = {
-            "Group A": ["Mexico", "South Africa", "South Korea", "Czechia"],
-            "Group B": ["Canada", "Bosnia and Herzegovina", "Qatar", "Switzerland"],
-            "Group C": ["Brazil", "Morocco", "Haiti", "Scotland"],
-            "Group D": ["USA", "Paraguay", "Australia", "Türkiye"],
-            "Group E": ["Germany", "Curaçao", "Côte d'Ivoire", "Ecuador"],
-            "Group F": ["Netherlands", "Japan", "Sweden", "Tunisia"],
-            "Group G": ["Belgium", "Egypt", "Iran", "New Zealand"],
-            "Group H": ["Spain", "Cabo Verde", "Saudi Arabia", "Uruguay"],
-            "Group I": ["France", "Senegal", "Norway", "Iraq"],
-            "Group J": ["Argentina", "Algeria", "Austria", "Jordan"],
-            "Group K": ["Portugal", "DR Congo", "Uzbekistan", "Colombia"],
-            "Group L": ["England", "Croatia", "Ghana", "Panama"]
+            "Group A": ["🇲🇽 Mexico", "🇿🇦 South Africa", "🇰🇷 South Korea", "🇨🇿 Czechia"],
+            "Group B": ["🇨🇦 Canada", "🇧🇦 Bosnia and Herzegovina", "🇶🇦 Qatar", "🇨🇭 Switzerland"],
+            "Group C": ["🇧🇷 Brazil", "🇲🇦 Morocco", "🇭🇹 Haiti", "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland"],
+            "Group D": ["🇺🇸 USA", "🇵🇾 Paraguay", "🇦🇺 Australia", "🇹🇷 Türkiye"],
+            "Group E": ["🇩🇪 Germany", "🇨🇼 Curaçao", "🇨🇮 Côte d'Ivoire", "🇪🇨 Ecuador"],
+            "Group F": ["🇳🇱 Netherlands", "🇯🇵 Japan", "🇸🇪 Sweden", "🇹🇳 Tunisia"],
+            "Group G": ["🇧🇪 Belgium", "🇪🇬 Egypt", "🇮🇷 Iran", "🇳🇿 New Zealand"],
+            "Group H": ["🇪🇸 Spain", "🇨🇻 Cabo Verde", "🇸🇦 Saudi Arabia", "🇺🇾 Uruguay"],
+            "Group I": ["🇫🇷 France", "🇸🇳 Senegal", "🇳🇴 Norway", "🇮🇶 Iraq"],
+            "Group J": ["🇦🇷 Argentina", "🇩🇿 Algeria", "🇦🇹 Austria", "🇯🇴 Jordan"],
+            "Group K": ["🇵🇹 Portugal", "🇨🇩 DR Congo", "🇺🇿 Uzbekistan", "🇨🇴 Colombia"],
+            "Group L": ["🏴󠁧󠁢󠁥󠁮󠁧󠁿 England", "🇭🇷 Croatia", "🇬🇭 Ghana", "🇵🇦 Panama"]
         }
         
+        # Consolidate into a single sorted list for the big dropdowns
         all_48_teams = []
         for teams in groups_dict.values():
             all_48_teams.extend(teams)
@@ -296,7 +311,6 @@ def main_app():
             with col1:
                 cup_winner = st.selectbox("Tournament Winner", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_winner))
             with col2:
-                # Reverted back to a free-text input so users can type any player they want
                 top_scorer = st.text_input("Golden Boot", value=def_scorer, placeholder="e.g., Kylian Mbappé")
             with col3:
                 most_goals = st.selectbox("Most Goals (Team)", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_most_goals))
