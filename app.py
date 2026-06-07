@@ -48,22 +48,16 @@ def get_flag(team):
 def update_group_callback(grp, pos):
     new_val = st.session_state[f"widget_{grp}_{pos}"]
     st.session_state.groups_state[grp][pos] = new_val
-    
     current = st.session_state.groups_state[grp]
     filled = [t for t in current if t != ""]
-    
-    # Auto-fill logic: If exactly 3 are filled AND the user just made a selection
     if len(filled) == 3 and new_val != "":
         missing_team = [t for t in GROUPS_DICT[grp] if t not in filled][0]
         empty_idx = current.index("")
         st.session_state.groups_state[grp][empty_idx] = missing_team
-        # Sync the widget memory so it displays the auto-fill immediately
         st.session_state[f"widget_{grp}_{empty_idx}"] = missing_team
 
 def clear_group_callback(grp, pos):
-    # Wipe the team from memory so it returns to the available options pool
     st.session_state.groups_state[grp][pos] = ""
-    # Reset the actual dropdown widget value to blank
     if f"widget_{grp}_{pos}" in st.session_state:
         st.session_state[f"widget_{grp}_{pos}"] = ""
 
@@ -112,14 +106,10 @@ def get_wc_matches():
         return {}
 
 # --- INITIALIZE SESSION STATES ---
-if 'theme' not in st.session_state:
-    st.session_state['theme'] = 'light'
-if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-if 'user_id' not in st.session_state:
-    st.session_state['user_id'] = None
-if 'user_name' not in st.session_state:
-    st.session_state['user_name'] = ""
+if 'theme' not in st.session_state: st.session_state['theme'] = 'light'
+if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+if 'user_id' not in st.session_state: st.session_state['user_id'] = None
+if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 
 # --- CUSTOM CSS ---
 def inject_custom_css():
@@ -205,38 +195,77 @@ def main_app():
 
     with tab1:
         st.write("")
-        if not all_matches: st.warning("No matches available yet from the API.")
+        if not all_matches: 
+            st.warning("No matches available yet from the API.")
         else:
             forecasts_res = supabase.table("match_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
             user_forecasts = {f['match_id']: f for f in forecasts_res.data} if forecasts_res.data else {}
+            
+            # Smart Filter for the Matches
+            f_col1, f_col2, f_col3 = st.columns([1, 2, 1])
+            with f_col2:
+                match_filter = st.selectbox("Filter Schedule", ["Upcoming Matches", "Finished Matches", "All Matches"])
+            st.write("")
+
             m_cols = st.columns(2)
             idx = 0
             for m_id, match in all_matches.items():
-                if match['status'] in ['NS', 'TBD']:
-                    existing = user_forecasts.get(m_id)
-                    def_home = existing['home_goals'] if existing else 0
-                    def_away = existing['away_goals'] if existing else 0
-                    with m_cols[idx % 2]:
-                        with st.container(border=True):
-                            st.markdown(f"<p style='text-align: center; color: gray; font-size: 14px;'>{match['date']}</p>", unsafe_allow_html=True)
-                            col1, col2, col3 = st.columns([2, 1, 2])
-                            with col1:
-                                if match['home_logo']: st.markdown(f"<div style='text-align: center;'><img src='{match['home_logo']}' width='40'></div>", unsafe_allow_html=True)
-                                st.markdown(f"<h4 style='text-align: center;'>{match['home_team']}</h4>", unsafe_allow_html=True)
-                                home_goals = st.number_input("Home Goals", min_value=0, max_value=15, step=1, value=def_home, key=f"home_{m_id}", label_visibility="collapsed")
-                            with col2:
+                is_finished = match['status'] in ['FT', 'AET', 'PEN']
+                is_upcoming = match['status'] in ['NS', 'TBD', 'PST']
+                
+                # Apply Filter
+                if match_filter == "Upcoming Matches" and not is_upcoming: continue
+                if match_filter == "Finished Matches" and not is_finished: continue
+
+                existing = user_forecasts.get(m_id)
+                def_home = existing['home_goals'] if existing else 0
+                def_away = existing['away_goals'] if existing else 0
+                
+                with m_cols[idx % 2]:
+                    with st.container(border=True):
+                        st.markdown(f"<p style='text-align: center; color: gray; font-size: 14px;'>{match['date']} • {match['status']}</p>", unsafe_allow_html=True)
+                        col1, col2, col3 = st.columns([2, 1, 2])
+                        with col1:
+                            if match['home_logo']: st.markdown(f"<div style='text-align: center;'><img src='{match['home_logo']}' width='40'></div>", unsafe_allow_html=True)
+                            st.markdown(f"<h4 style='text-align: center;'>{match['home_team']}</h4>", unsafe_allow_html=True)
+                        
+                        with col2:
+                            if is_finished:
+                                st.markdown(f"<h2 style='text-align: center; margin-top: 10px; color: #E53935;'>{match['actual_home']} - {match['actual_away']}</h2>", unsafe_allow_html=True)
+                            else:
                                 st.markdown("<h4 style='text-align: center; color: gray; margin-top: 30px;'>VS</h4>", unsafe_allow_html=True)
-                            with col3:
-                                if match['away_logo']: st.markdown(f"<div style='text-align: center;'><img src='{match['away_logo']}' width='40'></div>", unsafe_allow_html=True)
-                                st.markdown(f"<h4 style='text-align: center;'>{match['away_team']}</h4>", unsafe_allow_html=True)
+                                
+                        with col3:
+                            if match['away_logo']: st.markdown(f"<div style='text-align: center;'><img src='{match['away_logo']}' width='40'></div>", unsafe_allow_html=True)
+                            st.markdown(f"<h4 style='text-align: center;'>{match['away_team']}</h4>", unsafe_allow_html=True)
+                        
+                        # Only allow editing if the match hasn't finished
+                        if not is_finished:
+                            in_h, in_vs, in_a = st.columns([2, 1, 2])
+                            with in_h:
+                                home_goals = st.number_input("Home Goals", min_value=0, max_value=15, step=1, value=def_home, key=f"home_{m_id}", label_visibility="collapsed")
+                            with in_a:
                                 away_goals = st.number_input("Away Goals", min_value=0, max_value=15, step=1, value=def_away, key=f"away_{m_id}", label_visibility="collapsed")
+                            
                             st.write("") 
-                            if st.button("Save Forecast", key=f"btn_{m_id}", type="primary"):
+                            if st.button("Save Forecast", key=f"btn_{m_id}", type="primary", use_container_width=True):
                                 forecast_data = {"user_id": st.session_state['user_id'], "match_id": m_id, "home_goals": home_goals, "away_goals": away_goals}
                                 if existing: supabase.table("match_forecasts").update(forecast_data).eq("id", existing['id']).execute(); st.toast("Forecast updated! ⚽")
                                 else: supabase.table("match_forecasts").insert(forecast_data).execute(); st.toast("Forecast saved! ⚽")
                                 st.rerun()
-                    idx += 1
+                        else:
+                            # If finished, show them their prediction and points earned
+                            st.divider()
+                            if existing:
+                                pts = 0
+                                if match['actual_home'] == def_home and match['actual_away'] == def_away: pts = 3
+                                elif (match['actual_home'] > match['actual_away'] and def_home > def_away) or (match['actual_home'] < match['actual_away'] and def_home < def_away) or (match['actual_home'] == match['actual_away'] and def_home == def_away): pts = 1
+                                
+                                color = "green" if pts > 0 else "gray"
+                                st.markdown(f"<p style='text-align: center; font-weight: 600; color: {color};'>Your Forecast: {def_home} - {def_away} &nbsp;&nbsp;|&nbsp;&nbsp; Earned: {pts} pts</p>", unsafe_allow_html=True)
+                            else:
+                                st.markdown("<p style='text-align: center; color: gray;'>You didn't forecast this match.</p>", unsafe_allow_html=True)
+                idx += 1
 
     with tab2:
         st.write("")
@@ -248,7 +277,7 @@ def main_app():
             for forecast in (all_forecasts_res.data or []):
                 u_id = forecast['user_id']
                 m_id = forecast['match_id']
-                if m_id in all_matches and all_matches[m_id]['status'] == 'FT':
+                if m_id in all_matches and all_matches[m_id]['status'] in ['FT', 'AET', 'PEN']:
                     act_h, act_a = all_matches[m_id]['actual_home'], all_matches[m_id]['actual_away']
                     pred_h, pred_a = forecast['home_goals'], forecast['away_goals']
                     if u_id in leaderboard_data:
@@ -272,11 +301,9 @@ def main_app():
         st.markdown("<p style='text-align: center; color: gray;'>Lock in your big-picture guesses here!</p>", unsafe_allow_html=True)
         st.write("")
         
-        # Pull Existing Data
         extra_res = supabase.table("extra_forecasts").select("*").eq("user_id", st.session_state['user_id']).execute()
         existing_extra = extra_res.data[0] if extra_res.data else None
         
-        # Initialize Memory State for the Groups if it doesn't exist yet
         if 'groups_state' not in st.session_state:
             st.session_state.groups_state = {}
             saved_groups = existing_extra.get('groups_sort', {}) if existing_extra else {}
@@ -314,7 +341,6 @@ def main_app():
         st.subheader("📊 Group Stage Rankings")
         st.markdown("Select the 1st, 2nd, 3rd, and 4th place finishers for all 12 groups.")
 
-        # --- DYNAMIC GROUP SORTING GRID ---
         g_cols = st.columns(4)
         for idx, (grp_name, grp_teams) in enumerate(GROUPS_DICT.items()):
             with g_cols[idx % 4]:
@@ -324,17 +350,12 @@ def main_app():
                     positions = ["1st", "2nd", "3rd", "4th"]
                     for i, pos in enumerate(positions):
                         current_val = st.session_state.groups_state[grp_name][i]
-                        
-                        # Remove teams that are already selected in the OTHER 3 boxes of this group
                         other_vals = [st.session_state.groups_state[grp_name][j] for j in range(4) if j != i]
                         avail_teams = [t for t in grp_teams if t not in other_vals]
-                        
                         options = [""] + avail_teams
                         if current_val and current_val not in options: options.append(current_val)
                             
-                        # Layout: [Flag] [Dropdown] [X Button]
                         col_flag, col_drop, col_clear = st.columns([1.5, 5, 1.5])
-                        
                         with col_flag:
                             if current_val: st.markdown(f"<img src='{get_flag(current_val)}' width='25' style='margin-top: 32px; border-radius: 2px;'>", unsafe_allow_html=True)
                             else: st.markdown(f"<div style='margin-top: 32px; width: 25px; height: 18px; background-color: #f0f2f6; border-radius: 2px;'></div>", unsafe_allow_html=True)
@@ -350,12 +371,10 @@ def main_app():
                             )
                             
                         with col_clear:
-                            # A hidden spacer to align the button exactly with the dropdown box
                             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
                             st.button("✖", key=f"clear_{grp_name}_{i}", on_click=clear_group_callback, args=(grp_name, i), use_container_width=True)
 
         st.write("")
-        # Form is removed so we use a regular button to save the state to Supabase
         if st.button("Save All Extra Forecasts", type="primary", use_container_width=True):
             payload = {
                 "user_id": st.session_state['user_id'],
@@ -364,11 +383,8 @@ def main_app():
                 "most_goals_team": most_goals,
                 "groups_sort": st.session_state.groups_state 
             }
-            if existing_extra:
-                supabase.table("extra_forecasts").update(payload).eq("id", existing_extra['id']).execute()
-            else:
-                supabase.table("extra_forecasts").insert(payload).execute()
-                
+            if existing_extra: supabase.table("extra_forecasts").update(payload).eq("id", existing_extra['id']).execute()
+            else: supabase.table("extra_forecasts").insert(payload).execute()
             st.success("All predictions and group sortings locked in! 🔒")
 
 # --- APP ROUTING ---
