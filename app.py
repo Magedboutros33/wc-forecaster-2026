@@ -44,7 +44,7 @@ def get_flag(team):
         return f"https://flagcdn.com/w40/{FLAG_URLS[team]}.png"
     return "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/White_flag_of_surrender.svg/40px-White_flag_of_surrender.svg.png"
 
-# --- SMART CALLBACK FOR DYNAMIC GROUP SORTING ---
+# --- SMART CALLBACKS FOR DYNAMIC GROUP SORTING ---
 def update_group_callback(grp, pos):
     new_val = st.session_state[f"widget_{grp}_{pos}"]
     st.session_state.groups_state[grp][pos] = new_val
@@ -52,11 +52,20 @@ def update_group_callback(grp, pos):
     current = st.session_state.groups_state[grp]
     filled = [t for t in current if t != ""]
     
-    # Auto-fill logic: If exactly 3 are filled AND the user just made a selection (didn't clear one)
+    # Auto-fill logic: If exactly 3 are filled AND the user just made a selection
     if len(filled) == 3 and new_val != "":
         missing_team = [t for t in GROUPS_DICT[grp] if t not in filled][0]
         empty_idx = current.index("")
         st.session_state.groups_state[grp][empty_idx] = missing_team
+        # Sync the widget memory so it displays the auto-fill immediately
+        st.session_state[f"widget_{grp}_{empty_idx}"] = missing_team
+
+def clear_group_callback(grp, pos):
+    # Wipe the team from memory so it returns to the available options pool
+    st.session_state.groups_state[grp][pos] = ""
+    # Reset the actual dropdown widget value to blank
+    if f"widget_{grp}_{pos}" in st.session_state:
+        st.session_state[f"widget_{grp}_{pos}"] = ""
 
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
@@ -321,10 +330,15 @@ def main_app():
                         avail_teams = [t for t in grp_teams if t not in other_vals]
                         
                         options = [""] + avail_teams
-                        # Failsafe: Ensure current value is in options list
                         if current_val and current_val not in options: options.append(current_val)
                             
-                        col_flag, col_drop = st.columns([1, 3])
+                        # Layout: [Flag] [Dropdown] [X Button]
+                        col_flag, col_drop, col_clear = st.columns([1.5, 5, 1.5])
+                        
+                        with col_flag:
+                            if current_val: st.markdown(f"<img src='{get_flag(current_val)}' width='25' style='margin-top: 32px; border-radius: 2px;'>", unsafe_allow_html=True)
+                            else: st.markdown(f"<div style='margin-top: 32px; width: 25px; height: 18px; background-color: #f0f2f6; border-radius: 2px;'></div>", unsafe_allow_html=True)
+                            
                         with col_drop:
                             val = st.selectbox(
                                 pos, 
@@ -334,19 +348,21 @@ def main_app():
                                 on_change=update_group_callback,
                                 args=(grp_name, i)
                             )
-                        with col_flag:
-                            if val: st.markdown(f"<img src='{get_flag(val)}' width='30' style='margin-top: 30px; border-radius: 2px;'>", unsafe_allow_html=True)
-                            else: st.markdown(f"<div style='margin-top: 30px; width: 30px; height: 20px; background-color: #f0f2f6; border-radius: 2px;'></div>", unsafe_allow_html=True)
+                            
+                        with col_clear:
+                            # A hidden spacer to align the button exactly with the dropdown box
+                            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                            st.button("✖", key=f"clear_{grp_name}_{i}", on_click=clear_group_callback, args=(grp_name, i), use_container_width=True)
 
         st.write("")
-        # Form is removed, so we use a regular button to save to Supabase
+        # Form is removed so we use a regular button to save the state to Supabase
         if st.button("Save All Extra Forecasts", type="primary", use_container_width=True):
             payload = {
                 "user_id": st.session_state['user_id'],
                 "cup_winner": cup_winner,
                 "top_scorer": top_scorer,
                 "most_goals_team": most_goals,
-                "groups_sort": st.session_state.groups_state # Reads directly from the smart memory
+                "groups_sort": st.session_state.groups_state 
             }
             if existing_extra:
                 supabase.table("extra_forecasts").update(payload).eq("id", existing_extra['id']).execute()
