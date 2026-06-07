@@ -8,16 +8,14 @@ st.set_page_config(page_title="World Cup 2026 Forecaster", page_icon="🏆", lay
 # --- INITIALIZE SUPABASE ---
 @st.cache_resource
 def init_connection():
-    # This line automatically cleans the URL, ripping out '/rest/v1' if it exists
+    # .strip() removes any accidental leading/trailing spaces or newlines
     raw_url = st.secrets["SUPABASE_URL"].strip()
     clean_url = raw_url.split("/rest/v1")[0].rstrip('/')
     
-    key = st.secrets["SUPABASE_KEY"].strip()
-    return create_client(clean_url, key)
-try:
-    supabase: Client = init_connection()
-except Exception as e:
-    st.error(f"Failed to connect to database. Check your secrets configuration. Error: {e}")
+    # We strip the key completely to get rid of those 5 hidden characters
+    clean_key = st.secrets["SUPABASE_KEY"].strip()
+    
+    return create_client(clean_url, clean_key)
 
 # --- INITIALIZE SESSION STATES ---
 if 'theme' not in st.session_state:
@@ -47,8 +45,9 @@ def inject_custom_css():
 
 inject_custom_css()
 # --- DEBUGGING SECRETS (Remove later) ---
-st.warning(f"URL Length: {len(st.secrets['SUPABASE_URL'])}")
-st.warning(f"Key Length: {len(st.secrets['SUPABASE_KEY'])}")
+# --- DEBUGGING SECRETS (Remove later) ---
+st.warning(f"Clean URL Length: {len(st.secrets['SUPABASE_URL'].strip().split('/rest/v1')[0].rstrip('/'))}")
+st.warning(f"Clean Key Length: {len(st.secrets['SUPABASE_KEY'].strip())}")
 # --- AUTHENTICATION VIEW (LOGIN & SIGNUP) ---
 def auth_page():
     st.write("")
