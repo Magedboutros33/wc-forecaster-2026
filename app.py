@@ -272,13 +272,10 @@ def main_app():
             "Group L": ["England", "Croatia", "Ghana", "Panama"]
         }
         
-        # Extract and sort all 48 official teams for the Big Three dropdowns
         all_48_teams = []
         for teams in groups_dict.values():
             all_48_teams.extend(teams)
         unique_teams = sorted(all_48_teams)
-            
-        star_players = ["Kylian Mbappé", "Erling Haaland", "Harry Kane", "Vinícius Júnior", "Jude Bellingham", "Lionel Messi", "Cristiano Ronaldo", "Kevin De Bruyne", "Other"]
 
         def get_dd_index(options_list, saved_val):
             return options_list.index(saved_val) if saved_val in options_list else 0
@@ -299,7 +296,8 @@ def main_app():
             with col1:
                 cup_winner = st.selectbox("Tournament Winner", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_winner))
             with col2:
-                top_scorer = st.selectbox("Golden Boot", options=[""] + star_players, index=get_dd_index([""] + star_players, def_scorer))
+                # Reverted back to a free-text input so users can type any player they want
+                top_scorer = st.text_input("Golden Boot", value=def_scorer, placeholder="e.g., Kylian Mbappé")
             with col3:
                 most_goals = st.selectbox("Most Goals (Team)", options=[""] + unique_teams, index=get_dd_index([""] + unique_teams, def_most_goals))
                 
