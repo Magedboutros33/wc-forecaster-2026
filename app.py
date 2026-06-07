@@ -3,6 +3,8 @@ import requests
 import re
 from supabase import create_client, Client
 import pandas as pd
+from datetime import datetime
+from itertools import groupby
 
 # --- CONFIGURATION & INITIALIZATION ---
 st.set_page_config(page_title="WC 2026 Forecast", layout="wide", page_icon="⚽")
@@ -19,43 +21,48 @@ def init_connection():
 try:
     supabase: Client = init_connection()
 except Exception as e:
-    st.error(f"Failed to connect to database. Check your secrets configuration.")
+    st.error("Failed to connect to database. Check your secrets configuration.")
 
 # --- SESSION STATES ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_id' not in st.session_state: st.session_state['user_id'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 
-# --- FORCE LIGHT MODE CSS ---
+# --- FORCE LIGHT MODE & CUSTOM CSS ---
 def inject_light_mode_css():
     st.markdown("""
     <style>
         /* Force App Background to White */
         .stApp { background-color: #FFFFFF !important; color: #1E1E1E !important; }
-        
-        /* Force Text Colors */
         h1, h2, h3, h4, h5, p, label, span { color: #1E1E1E !important; }
         
-        /* Force Input Fields and Dropdowns to White with Dark Text */
+        /* Force Input Fields to White with Dark Text */
         div[data-baseweb="select"] > div, div[data-baseweb="input"] > div, input {
-            background-color: #F8F9FA !important;
-            color: #1E1E1E !important;
-            border: 1px solid #CCCCCC !important;
+            background-color: #F8F9FA !important; color: #1E1E1E !important; border: 1px solid #CCCCCC !important;
         }
-        div[data-baseweb="popover"] ul { background-color: #FFFFFF !important; color: #1E1E1E !important; }
-        li[role="option"] { color: #1E1E1E !important; }
+        
+        /* CUSTOM BUTTON COLORS */
+        /* Primary Button (Save) -> Green */
+        button[kind="primary"] {
+            background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; font-weight: bold;
+        }
+        /* Secondary Button (Change) -> Orange */
+        button[kind="secondary"] {
+            background-color: #fd7e14 !important; border-color: #fd7e14 !important; color: white !important; font-weight: bold;
+        }
+        
+        /* Make number inputs smaller and center the text */
+        input[type="number"] { text-align: center !important; font-size: 1.2rem !important; padding: 5px !important; }
         
         /* General styling */
         [data-testid="collapsedControl"] { display: none; }
         .stTabs [data-baseweb="tab-list"] { justify-content: center; gap: 15px; }
-        .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
-        input[type="number"] { text-align: center; font-size: 1.1rem; }
     </style>
     """, unsafe_allow_html=True)
 
 inject_light_mode_css()
 
-# --- OFFICIAL 2026 WORLD CUP GROUPS & FLAGS (For Extra Tab) ---
+# --- OFFICIAL 2026 WORLD CUP GROUPS & FLAGS ---
 GROUPS_DICT = {
     "Group A": ["Mexico", "South Africa", "South Korea", "Czechia"],
     "Group B": ["Canada", "Bosnia and Herzegovina", "Qatar", "Switzerland"],
@@ -86,6 +93,7 @@ FLAG_URLS = {
     "England": "gb-eng", "Croatia": "hr", "Ghana": "gh", "Panama": "pa"
 }
 
+# The bug fix: explicitly mapping the name to the flag dictionary
 def get_flag(team):
     if team in FLAG_URLS: return f"https://flagcdn.com/w40/{FLAG_URLS[team]}.png"
     return "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/White_flag_of_surrender.svg/40px-White_flag_of_surrender.svg.png"
@@ -153,7 +161,8 @@ def auth_page():
         with tab1:
             login_email = st.text_input("Email", key="login_email")
             login_password = st.text_input("Password", type="password", key="login_pass")
-            if st.button("Login", type="primary"):
+            # Set to primary so it gets styled Green
+            if st.button("Login", type="primary", use_container_width=True):
                 try:
                     response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
                     st.session_state['logged_in'] = True
@@ -169,7 +178,7 @@ def auth_page():
             reg_phone = st.text_input("Phone Number")
             reg_email = st.text_input("Email")
             reg_password = st.text_input("Password", type="password")
-            if st.button("Create Account", type="primary"):
+            if st.button("Create Account", type="primary", use_container_width=True):
                 if not reg_name or not reg_email or not reg_password:
                     st.error("Please fill out all required fields.")
                 else:
@@ -180,10 +189,110 @@ def auth_page():
                     except Exception as e:
                         st.error(f"Error creating account: {e}")
 
+# --- MATCH RENDERER COMPONENT ---
+def render_match(match, user_forecasts):
+    m_id = match['id']
+    status = match['status']
+    home_team = match['homeTeam']['name']
+    away_team = match['awayTeam']['name']
+    
+    home_flag = get_flag(home_team)
+    away_flag = get_flag(away_team)
+    
+    actual_home = match['score']['fullTime'].get('home')
+    actual_away = match['score']['fullTime'].get('away')
+
+    # Manage Edit State
+    has_forecast = m_id in user_forecasts
+    if f"edit_{m_id}" not in st.session_state:
+        st.session_state[f"edit_{m_id}"] = not has_forecast
+
+    with st.container(border=True):
+        # Header Row: Perfectly Centered
+        st.markdown(f"""
+        <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
+            <div style='display: flex; align-items: center; gap: 10px; flex: 1;'>
+                <img src='{home_flag}' width='35' style='border-radius: 3px;'>
+                <h3 style='margin: 0;'>{home_team}</h3>
+            </div>
+            <div style='flex: 0.5; text-align: center;'>
+                <span style='color: #888; font-size: 0.9rem; font-weight: bold;'>{status}</span><br>
+                <span style='font-size: 1.2rem; font-weight: bold;'>vs</span>
+            </div>
+            <div style='display: flex; align-items: center; gap: 10px; flex: 1; justify-content: flex-end;'>
+                <h3 style='margin: 0;'>{away_team}</h3>
+                <img src='{away_flag}' width='35' style='border-radius: 3px;'>
+            </div>
+        </div>
+        <hr style='margin: 5px 0 15px 0; border: 0; border-top: 1px solid #eee;'>
+        """, unsafe_allow_html=True)
+
+        if status in ["TIMED", "SCHEDULED"]:
+            saved_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
+            saved_away = user_forecasts.get(m_id, {}).get('away_goals', 0)
+            
+            # Tighter columns to make inputs smaller
+            ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([1.5, 1.5, 0.5, 1.5, 0.5, 2, 1])
+            
+            is_locked = not st.session_state[f"edit_{m_id}"]
+            
+            pred_h = ic2.number_input("H", min_value=0, value=int(saved_home), key=f"h_{m_id}", disabled=is_locked, label_visibility="collapsed")
+            ic3.markdown("<h3 style='text-align: center; margin-top: 0px;'>-</h3>", unsafe_allow_html=True)
+            pred_a = ic4.number_input("A", min_value=0, value=int(saved_away), key=f"a_{m_id}", disabled=is_locked, label_visibility="collapsed")
+            
+            with ic6:
+                if is_locked:
+                    # type="secondary" forces it to be Orange via CSS
+                    if st.button("Change", key=f"btn_change_{m_id}", use_container_width=True, type="secondary"):
+                        st.session_state[f"edit_{m_id}"] = True
+                        st.rerun()
+                else:
+                    # type="primary" forces it to be Green via CSS
+                    if st.button("Save", key=f"btn_save_{m_id}", use_container_width=True, type="primary"):
+                        save_forecast(m_id, pred_h, pred_a)
+                        st.session_state[f"edit_{m_id}"] = False
+                        st.rerun()
+        else:
+            # Visualization for Results and Points
+            if m_id in user_forecasts:
+                u_h = user_forecasts[m_id]['home_goals']
+                u_a = user_forecasts[m_id]['away_goals']
+                pts = calculate_points(actual_home, actual_away, u_h, u_a)
+                
+                # Dynamic Point Badges
+                pt_color = "#28a745" if pts == 3 else ("#ffc107" if pts == 1 else "#dc3545")
+                text_color = "white" if pts != 1 else "#333"
+                
+                st.markdown(f"""
+                <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; display: flex; justify-content: space-around; align-items: center;'>
+                    <div style='text-align: center;'>
+                        <p style='margin:0; color:#666; font-size: 0.9rem;'>Actual Result</p>
+                        <h2 style='margin:0;'>{actual_home} - {actual_away}</h2>
+                    </div>
+                    <div style='text-align: center;'>
+                        <p style='margin:0; color:#666; font-size: 0.9rem;'>Your Forecast</p>
+                        <h3 style='margin:0; color: #555;'>{u_h} - {u_a}</h3>
+                    </div>
+                    <div style='background-color: {pt_color}; color: {text_color}; padding: 10px 20px; border-radius: 25px; font-weight: bold; font-size: 1.1rem;'>
+                        +{pts} Points
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style='background-color: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;'>
+                    <p style='margin:0; color:#666; font-size: 0.9rem;'>Actual Result</p>
+                    <h2 style='margin:0;'>{actual_home} - {actual_away}</h2>
+                    <p style='margin: 5px 0 0 0; color: #dc3545; font-weight: bold;'>No forecast locked in. (0 Points)</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+
 # --- MAIN APP ---
 def main_app():
     c1, c2 = st.columns([8, 1])
     with c2:
+        # Standard default button style (grey)
         if st.button("🚪 Logout"):
             try: supabase.auth.sign_out()
             except: pass
@@ -208,57 +317,37 @@ def main_app():
         if not matches:
             st.warning("No matches available from the API at the moment.")
         else:
-            for match in matches:
-                m_id = match['id']
-                status = match['status']
-                home_team = match['homeTeam']['name']
-                away_team = match['awayTeam']['name']
-                
-                # --- BUG FIX: Safe extraction of Country Codes to prevent TypeError ---
-                home_tla = match['homeTeam'].get('tla')
-                away_tla = match['awayTeam'].get('tla')
-                home_code = home_tla if home_tla else 'UN'
-                away_code = away_tla if away_tla else 'UN'
-                
-                actual_home = match['score']['fullTime'].get('home')
-                actual_away = match['score']['fullTime'].get('away')
+            # Parse Dates for Grouping
+            for m in matches:
+                try:
+                    # Parse UTC string from API (e.g. "2026-06-11T20:00:00Z")
+                    m['parsed_date'] = datetime.strptime(m['utcDate'], "%Y-%m-%dT%H:%M:%SZ")
+                except:
+                    m['parsed_date'] = datetime.now() # Fallback
+            
+            # Sort matches by date
+            matches.sort(key=lambda x: x['parsed_date'])
+            
+            # Filter matches into Sub-Tabs
+            upcoming_matches = [m for m in matches if m['status'] in ['SCHEDULED', 'TIMED', 'IN_PLAY', 'PAUSED']]
+            historical_matches = [m for m in matches if m['status'] in ['FINISHED', 'AWARDED']]
+            
+            sub1, sub2, sub3 = st.tabs(["🔜 Upcoming", "⏪ Historical", "📋 All Matches"])
+            
+            def render_match_group(match_list):
+                if not match_list:
+                    st.info("No matches found in this category.")
+                    return
+                # Group by day string
+                grouped = groupby(match_list, key=lambda x: x['parsed_date'].strftime("%A, %B %d, %Y"))
+                for date_str, group in grouped:
+                    st.markdown(f"<h4 style='background-color: #f0f2f6; padding: 10px; border-radius: 5px; margin-top: 25px;'>📅 {date_str}</h4>", unsafe_allow_html=True)
+                    for match in group:
+                        render_match(match, user_forecasts)
 
-                with st.container(border=True):
-                    col1, col2, col3 = st.columns([3, 2, 3])
-                    with col1:
-                        st.image(f"https://flagcdn.com/w40/{home_code[:2].lower()}.png", width=30)
-                        st.markdown(f"### {home_team}")
-                        
-                    with col2:
-                        st.markdown(f"<p style='text-align: center; color: #888;'><b>{status}</b></p>", unsafe_allow_html=True)
-                        if actual_home is not None and actual_away is not None:
-                            st.markdown(f"<h2 style='text-align: center;'>{actual_home} - {actual_away}</h2>", unsafe_allow_html=True)
-                        else:
-                            st.markdown("<h4 style='text-align: center;'>vs</h4>", unsafe_allow_html=True)
-                            
-                    with col3:
-                        st.image(f"https://flagcdn.com/w40/{away_code[:2].lower()}.png", width=30)
-                        st.markdown(f"### {away_team}")
-
-                    if status in ["TIMED", "SCHEDULED"]:
-                        saved_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
-                        saved_away = user_forecasts.get(m_id, {}).get('away_goals', 0)
-                        
-                        f_col1, f_col2, f_col3 = st.columns([2, 2, 1])
-                        pred_h = f_col1.number_input(f"{home_team} Goals", min_value=0, value=int(saved_home), key=f"h_{m_id}", label_visibility="collapsed")
-                        pred_a = f_col2.number_input(f"{away_team} Goals", min_value=0, value=int(saved_away), key=f"a_{m_id}", label_visibility="collapsed")
-                        
-                        if f_col3.button("Save", key=f"btn_{m_id}", use_container_width=True, type="primary"):
-                            save_forecast(m_id, pred_h, pred_a)
-                            st.rerun()
-                    else:
-                        if m_id in user_forecasts:
-                            u_h = user_forecasts[m_id]['home_goals']
-                            u_a = user_forecasts[m_id]['away_goals']
-                            pts = calculate_points(actual_home, actual_away, u_h, u_a)
-                            st.info(f"Your prediction: **{u_h} - {u_a}** | Points Earned: **{pts}**")
-                        else:
-                            st.write("No prediction locked in for this match.")
+            with sub1: render_match_group(upcoming_matches)
+            with sub2: render_match_group(historical_matches)
+            with sub3: render_match_group(matches)
 
     with tab2:
         st.write("")
@@ -270,24 +359,18 @@ def main_app():
         if users_res.data:
             leaderboard_data = {u['id']: {"Player": u['name'], "Exact Scores (3pt)": 0, "Correct Outcomes (1pt)": 0, "Total Points": 0} for u in users_res.data}
             
-            # Map actual scores from API
             api_results = {}
             for m in matches:
                 if m['status'] in ['FINISHED', 'AWARDED']:
-                    api_results[m['id']] = {
-                        "h": m['score']['fullTime'].get('home'),
-                        "a": m['score']['fullTime'].get('away')
-                    }
+                    api_results[m['id']] = {"h": m['score']['fullTime'].get('home'), "a": m['score']['fullTime'].get('away')}
 
             for forecast in (all_forecasts_res.data or []):
                 u_id = forecast['user_id']
                 m_id = forecast['match_id']
                 
                 if m_id in api_results and api_results[m_id]['h'] is not None:
-                    act_h = api_results[m_id]['h']
-                    act_a = api_results[m_id]['a']
-                    pred_h = forecast['home_goals']
-                    pred_a = forecast['away_goals']
+                    act_h, act_a = api_results[m_id]['h'], api_results[m_id]['a']
+                    pred_h, pred_a = forecast['home_goals'], forecast['away_goals']
                     
                     if u_id in leaderboard_data:
                         if act_h == pred_h and act_a == pred_a:
