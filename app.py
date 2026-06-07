@@ -43,6 +43,11 @@ def inject_light_mode_css():
         button[kind="primary"] { background-color: #28a745 !important; border-color: #28a745 !important; color: white !important; font-weight: bold; }
         button[kind="secondary"] { background-color: #fd7e14 !important; border-color: #fd7e14 !important; color: white !important; font-weight: bold; }
         
+        /* FORCE FORECAST INPUTS TO BE COMPACT AND CENTERED UNDER FLAGS */
+        div[data-testid="stNumberInput"] {
+            max-width: 80px !important;
+            margin: 0 auto !important;
+        }
         input[type="number"] { text-align: center !important; font-size: 1.2rem !important; padding: 5px !important; }
         
         [data-testid="collapsedControl"] { display: none; }
@@ -55,16 +60,6 @@ def inject_light_mode_css():
                 flex-direction: row !important;
                 flex-wrap: nowrap !important;
                 align-items: center !important;
-            }
-            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"] {
-                width: auto !important;
-                min-width: 0 !important;
-                padding: 0 3px !important;
-            }
-            /* Hide the outer spacer columns on mobile to give inputs more room */
-            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"]:first-child,
-            div[data-testid="stHorizontalBlock"]:has(.keep-horizontal) > div[data-testid="column"]:last-child {
-                display: none !important;
             }
         }
     </style>
@@ -226,7 +221,7 @@ def render_match(match, user_forecasts, prefix=""):
         # 1. MATCH TIME & STATUS
         st.markdown(f"<div style='text-align: center; color: #777; font-size: 0.85rem; font-weight: bold; margin-bottom: 12px;'>🕒 {time_str} (Egypt Time) &nbsp;•&nbsp; {status}</div>", unsafe_allow_html=True)
 
-        # 2. TEAMS AND FLAGS
+        # 2. TEAMS AND FLAGS (Strict 1:0.4:1 Flex Ratio)
         st.markdown(f"""
         <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;'>
             <div style='flex: 1; text-align: center; display: flex; flex-direction: column; align-items: center;'>
@@ -249,26 +244,38 @@ def render_match(match, user_forecasts, prefix=""):
 
         st.markdown("<hr style='margin: 15px 0 10px 0; border: 0; border-top: 1px dashed #eee;'>", unsafe_allow_html=True)
 
-        # 3. ACTUAL RESULTS
+        # 3. ACTUAL RESULTS (Strict 1:0.4:1 Flex Ratio to match flags perfectly)
         st.markdown("<div style='text-align: center; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;'>Actual Result</div>", unsafe_allow_html=True)
         if actual_home is not None and actual_away is not None:
             st.markdown(f"""
-            <div style='display: flex; justify-content: center; align-items: center; gap: 15px; margin-bottom: 15px;'>
-                <div style='background-color: #f1f3f5; padding: 5px 20px; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #ddd;'>{actual_home}</div>
-                <span style='color: #888; font-weight: bold;'>-</span>
-                <div style='background-color: #f1f3f5; padding: 5px 20px; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #ddd;'>{actual_away}</div>
+            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>
+                <div style='flex: 1; text-align: center;'>
+                    <div style='display: inline-block; background-color: #f1f3f5; width: 60px; padding: 5px 0; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #ddd;'>{actual_home}</div>
+                </div>
+                <div style='flex: 0.4; text-align: center;'>
+                    <span style='color: #888; font-weight: bold;'>-</span>
+                </div>
+                <div style='flex: 1; text-align: center;'>
+                    <div style='display: inline-block; background-color: #f1f3f5; width: 60px; padding: 5px 0; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #ddd;'>{actual_away}</div>
+                </div>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown(f"""
-            <div style='display: flex; justify-content: center; align-items: center; gap: 15px; margin-bottom: 15px;'>
-                <div style='background-color: #f8f9fa; color: #ccc; padding: 5px 20px; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #eee;'>-</div>
-                <span style='color: #ccc; font-weight: bold;'>-</span>
-                <div style='background-color: #f8f9fa; color: #ccc; padding: 5px 20px; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #eee;'>-</div>
+            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;'>
+                <div style='flex: 1; text-align: center;'>
+                    <div style='display: inline-block; background-color: #f8f9fa; color: #ccc; width: 60px; padding: 5px 0; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #eee;'>-</div>
+                </div>
+                <div style='flex: 0.4; text-align: center;'>
+                    <span style='color: #ccc; font-weight: bold;'>-</span>
+                </div>
+                <div style='flex: 1; text-align: center;'>
+                    <div style='display: inline-block; background-color: #f8f9fa; color: #ccc; width: 60px; padding: 5px 0; border-radius: 6px; font-size: 1.4rem; font-weight: bold; border: 1px solid #eee;'>-</div>
+                </div>
             </div>
             """, unsafe_allow_html=True)
 
-        # 4. FORECAST SECTION
+        # 4. FORECAST SECTION (Strict 1:0.4:1 Streamlit Columns to match Flex Ratios)
         st.markdown("<div style='text-align: center; font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;'>Your Forecast</div>", unsafe_allow_html=True)
         
         db_home = user_forecasts.get(m_id, {}).get('home_goals', 0)
@@ -278,43 +285,55 @@ def render_match(match, user_forecasts, prefix=""):
         
         is_locked = not st.session_state[edit_key]
         
-        fc_space1, fc_h, fc_dash, fc_a, fc_btn, fc_space2 = st.columns([1, 1.2, 0.2, 1.2, 2, 1])
+        # Columns ratio perfectly aligns with flex ratio
+        fc1, fc2, fc3 = st.columns([1, 0.4, 1])
         
-        if is_locked:
-            locked_style = "background-color: #E9ECEF; color: #555; border: 1px solid #CCC; border-radius: 6px; text-align: center; font-size: 1.2rem; padding: 4px; height: 38px; line-height: 28px; font-weight: bold;"
-            fc_h.markdown(f"<div style='{locked_style}'>{saved_home}</div>", unsafe_allow_html=True)
-            
-            # The 'keep-horizontal' class triggers the CSS mobile fix
-            fc_dash.markdown("<div class='keep-horizontal' style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
-            fc_a.markdown(f"<div style='{locked_style}'>{saved_away}</div>", unsafe_allow_html=True)
-            
-            with fc_btn:
+        with fc1:
+            # Trigger mobile fix
+            st.markdown("<div class='keep-horizontal'></div>", unsafe_allow_html=True)
+            if is_locked:
+                locked_style = "background-color: #E9ECEF; color: #555; border: 1px solid #CCC; border-radius: 6px; text-align: center; font-size: 1.2rem; padding: 4px; height: 38px; line-height: 28px; font-weight: bold; max-width: 80px; margin: 0 auto;"
+                st.markdown(f"<div style='{locked_style}'>{saved_home}</div>", unsafe_allow_html=True)
+            else:
+                if status in ["TIMED", "SCHEDULED"]:
+                    pred_h = st.number_input("H", min_value=0, value=int(saved_home), key=f"{prefix}h_{m_id}", label_visibility="collapsed")
+                else:
+                    st.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px; max-width: 80px; margin: 0 auto;'>-</div>", unsafe_allow_html=True)
+        
+        with fc2:
+            st.markdown("<div style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
+        
+        with fc3:
+            if is_locked:
+                locked_style = "background-color: #E9ECEF; color: #555; border: 1px solid #CCC; border-radius: 6px; text-align: center; font-size: 1.2rem; padding: 4px; height: 38px; line-height: 28px; font-weight: bold; max-width: 80px; margin: 0 auto;"
+                st.markdown(f"<div style='{locked_style}'>{saved_away}</div>", unsafe_allow_html=True)
+            else:
+                if status in ["TIMED", "SCHEDULED"]:
+                    pred_a = st.number_input("A", min_value=0, value=int(saved_away), key=f"{prefix}a_{m_id}", label_visibility="collapsed")
+                else:
+                    st.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px; max-width: 80px; margin: 0 auto;'>-</div>", unsafe_allow_html=True)
+
+        # Dedicated Row for the Button to keep inputs uncluttered
+        btn_c1, btn_c2, btn_c3 = st.columns([1, 1.5, 1])
+        with btn_c2:
+            st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+            if is_locked:
                 if status in ["TIMED", "SCHEDULED"]:
                     if st.button("Change", key=f"{prefix}btn_change_{m_id}", use_container_width=True, type="secondary"):
                         st.session_state[edit_key] = True
                         st.rerun()
                 else:
                     st.markdown("<div style='text-align: center; padding-top: 8px; color: #dc3545; font-size: 0.85rem; font-weight: bold;'>Locked</div>", unsafe_allow_html=True)
-        else:
-            if status in ["TIMED", "SCHEDULED"]:
-                pred_h = fc_h.number_input("H", min_value=0, value=int(saved_home), key=f"{prefix}h_{m_id}", label_visibility="collapsed")
-                
-                # The 'keep-horizontal' class triggers the CSS mobile fix
-                fc_dash.markdown("<div class='keep-horizontal' style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
-                pred_a = fc_a.number_input("A", min_value=0, value=int(saved_away), key=f"{prefix}a_{m_id}", label_visibility="collapsed")
-                
-                with fc_btn:
+            else:
+                if status in ["TIMED", "SCHEDULED"]:
                     if st.button("Save", key=f"{prefix}btn_save_{m_id}", use_container_width=True, type="primary"):
                         save_forecast(m_id, pred_h, pred_a)
                         st.session_state[f"cache_h_{m_id}"] = pred_h
                         st.session_state[f"cache_a_{m_id}"] = pred_a
                         st.session_state[edit_key] = False
                         st.rerun()
-            else:
-                fc_h.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px;'>-</div>", unsafe_allow_html=True)
-                fc_dash.markdown("<div class='keep-horizontal' style='text-align: center; margin-top: 5px; font-weight: bold; color: #888;'>-</div>", unsafe_allow_html=True)
-                fc_a.markdown(f"<div style='background-color: #fff; border: 1px solid #eee; border-radius: 6px; text-align: center; padding: 4px;'>-</div>", unsafe_allow_html=True)
-                fc_btn.markdown("<div style='text-align: center; padding-top: 8px; color: #dc3545; font-size: 0.85rem; font-weight: bold;'>Locked</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div style='text-align: center; padding-top: 8px; color: #dc3545; font-size: 0.85rem; font-weight: bold;'>Locked</div>", unsafe_allow_html=True)
 
         # 5. REWARD SECTION
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
